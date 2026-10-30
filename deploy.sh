@@ -11,6 +11,9 @@
 
 set -e
 
+# Prevent recursive invocation if called from git pre-push hook
+export DRHAIR_DEPLOYING=1
+
 # Terminal colors
 BOLD='\033[1m'
 CYAN='\033[0;36m'
