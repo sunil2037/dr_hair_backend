@@ -1,8 +1,9 @@
 import { NotFoundError, BadRequestError } from '../../../shared/errors/index.js';
 
 export class UpdateProfilePictureUseCase {
-  constructor({ userRepository }) {
+  constructor({ userRepository, imageStorage }) {
     this.userRepository = userRepository;
+    this.imageStorage = imageStorage;
   }
 
   async execute({ userId, file, action }) {
@@ -20,11 +21,15 @@ export class UpdateProfilePictureUseCase {
     }
 
     // Relative path stored in database (e.g. 'uploads/profiles/filename.jpg')
-    const relativePath = `uploads/profiles/${file.filename}`;
-    const updatedUser = await this.userRepository.updateAvatar(userId, relativePath);
+    const stored = await this.imageStorage.uploadImage(
+      file.buffer,
+      'profiles',
+      'user-' + userId,
+    );
+    const updatedUser = await this.userRepository.updateAvatar(userId, stored.secureUrl);
 
     return {
-      profileUrl: relativePath,
+      profileUrl: stored.secureUrl,
       user: updatedUser,
       message: 'Profile photo updated successfully.',
     };

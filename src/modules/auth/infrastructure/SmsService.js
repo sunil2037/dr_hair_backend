@@ -1,13 +1,18 @@
 import { logger } from '../../../shared/utils/logger.js';
+import { config } from '../../../config/env.js';
 
 export class SmsService {
   /**
    * Sends OTP to phone/email
-   * In development/staging, logs to console and returns true
+  * In development, logs the test OTP to console and returns true
    */
   async sendOtp(destination, otpCode) {
-    logger.info(`[SMS/Email Gateway] Sending OTP ${otpCode} to ${destination}`);
-    // Ready for 3rd party integration (e.g. Twilio, MSG91, SendGrid)
+    if (!config.isDev) {
+      throw new Error('OTP delivery is not configured. Add an OTP API provider before production use.');
+    }
+
+    logger.info(`[Development OTP] Sending ${otpCode} to ${destination}`);
+    // Development-only delivery stub; connect a provider before production use.
     return true;
   }
 }

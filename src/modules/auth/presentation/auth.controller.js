@@ -33,6 +33,7 @@ export class AuthController {
         extra: {
           token: result.token,
           is_registered: result.isRegistered,
+          is_admin: result.isAdmin,
         },
       });
     } catch (err) {

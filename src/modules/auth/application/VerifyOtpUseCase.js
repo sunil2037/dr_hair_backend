@@ -1,5 +1,7 @@
 import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index.js';
 import { TokenService } from '../../../shared/utils/token.service.js';
+import { config } from '../../../config/env.js';
+import { isValidLogin, normalizeLogin } from '../../../shared/utils/normalize-login.js';
 
 export class VerifyOtpUseCase {
   constructor({ otpRepository, userRepository }) {
@@ -12,13 +14,18 @@ export class VerifyOtpUseCase {
       throw new BadRequestError('Both login and 6-digit OTP code are required.');
     }
 
-    const cleanLogin = login.trim();
+    const cleanLogin = normalizeLogin(login);
+    if (!isValidLogin(cleanLogin)) {
+      throw new BadRequestError('Enter a valid email address or phone number.');
+    }
     const cleanOtp = String(otp).trim();
 
     const storedOtp = await this.otpRepository.findByLogin(cleanLogin);
 
     // Also accept default test OTP in development mode
-    const isTestOtpValid = process.env.NODE_ENV !== 'production' && cleanOtp === '123456';
+    const isTestOtpValid = config.isDev
+      && Boolean(config.otp.defaultOtp)
+      && cleanOtp === config.otp.defaultOtp;
 
     if (!storedOtp && !isTestOtpValid) {
       throw new UnauthorizedError('OTP expired or not requested. Please request a new OTP.');
@@ -35,19 +42,25 @@ export class VerifyOtpUseCase {
 
     // Check if user exists in database
     const user = await this.userRepository.findByLogin(cleanLogin);
+    const isAdmin =
+      config.admin.emails.includes(cleanLogin.toLowerCase())
+      || user?.role === 'admin';
 
     // Generate JWT auth token
     const tokenPayload = user
       ? {
           id: user.id,
+          login: cleanLogin,
           name: user.name,
           email: user.email,
           phone: user.phone,
           isRegistered: true,
+          role: isAdmin ? 'admin' : 'user',
         }
       : {
           login: cleanLogin,
           isRegistered: false,
+          role: isAdmin ? 'admin' : 'user',
         };
 
     const token = TokenService.generateToken(tokenPayload);
@@ -56,6 +69,7 @@ export class VerifyOtpUseCase {
       message: 'OTP verified successfully.',
       token,
       isRegistered: !!user,
+      isAdmin,
       user: user || null,
     };
   }

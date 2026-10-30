@@ -5,12 +5,12 @@ export class GetTreatmentHistoryUseCase {
     this.treatmentRepository = treatmentRepository;
   }
 
-  async execute({ referenceNoOrId }) {
-    if (!referenceNoOrId) {
+  async execute({ referenceNoOrId, userId }) {
+    if (!referenceNoOrId || !userId) {
       throw new BadRequestError('Test reference number or ID is required.');
     }
 
-    const treatments = await this.treatmentRepository.findByTestIdentifier(referenceNoOrId);
+    const treatments = await this.treatmentRepository.findByTestIdentifier(referenceNoOrId, { userId });
     return treatments.map((t) => t.toResponse());
   }
 }

@@ -1,0 +1,728 @@
+openapi: 3.1.0
+info:
+  title: Dr. Hair API
+  version: 1.0.0
+  description: >-
+    Express API for the Flutter app and admin panel. MongoDB Atlas is used when
+    MONGODB_URI is configured; local development can fall back to in-memory repositories.
+    Admin routes require a JWT issued to an address in ADMIN_EMAILS.
+servers:
+  - url: /
+    description: Current backend origin
+tags:
+  - name: System
+  - name: Authentication
+  - name: Users
+  - name: Hair tests
+  - name: Treatments
+  - name: Reviews
+  - name: Notifications
+  - name: Videos
+  - name: Admin
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Check backend process health
+      responses:
+        '200':
+          description: Backend process is responding
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok, degraded] }
+                  database: { type: string, enum: [connected, disconnected, memory] }
+                  uptime: { type: number }
+                  timestamp: { type: string, format: date-time }
+                required: [status, database, uptime, timestamp]
+        '503':
+          description: Backend is running but its production database is unavailable
+
+  /api/v1/auth/send_login_otp:
+    post:
+      tags: [Authentication]
+      summary: Request a sign-in or registration OTP
+      description: In development, the configured test OTP may be returned in the message. No SMS provider is required for the current test flow.
+      x-legacy-path: /auth/send_login_otp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: OTP request accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      type: { type: string, enum: [login, register] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/auth/verify_login_otp:
+    post:
+      tags: [Authentication]
+      summary: Verify OTP and receive a bearer token
+      x-legacy-path: /auth/verify_login_otp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyOtpRequest' }
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/VerifyOtpRequest' }
+      responses:
+        '200':
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      token: { type: string }
+                      is_registered: { type: boolean }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/users/checkUser:
+    post:
+      tags: [Users]
+      summary: Validate the current user session
+      x-legacy-path: /Admin/checkUser
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/users/loginSignup:
+    post:
+      tags: [Users]
+      summary: Create or update a user profile after verification
+      description: Requires the bearer token returned by OTP verification. The submitted email or phone must match the verified login in that token; only one login identity can be added per verification. Age, gender, city, occupation, and platform are optional.
+      x-legacy-path: /Admin/loginSignup
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterUserRequest' }
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/RegisterUserRequest' }
+      responses:
+        '200':
+          description: User profile created or updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegisterUserResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/users/get_profile:
+    post:
+      tags: [Users]
+      summary: Get the authenticated user's profile
+      x-legacy-path: /Admin/get_profile
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/users/updateProfile:
+    post:
+      tags: [Users]
+      summary: Update profile text fields
+      x-legacy-path: /Admin/updateProfile
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdateRequest' }
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ProfileUpdateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/users/profileUpdate:
+    post:
+      tags: [Users]
+      summary: Upload the authenticated user's profile picture
+      x-legacy-path: /Admin/profileUpdate
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                action: { type: string, example: upload }
+                profile: { type: string, format: binary, description: JPEG, PNG, or WebP image }
+              required: [profile]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/hair-tests/submit_form:
+    post:
+      tags: [Hair tests]
+      summary: Submit a hair and scalp assessment
+      description: Questionnaire array fields may be JSON-encoded strings in multipart form data. Five optional scalp photo fields are supported by the current route.
+      x-legacy-path: /HairTest/submit_form
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/HairTestFields'
+                - type: object
+                  properties:
+                    photo_front: { type: string, format: binary }
+                    photo_top: { type: string, format: binary }
+                    photo_left: { type: string, format: binary }
+                    photo_right: { type: string, format: binary }
+                    photo_back: { type: string, format: binary }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/hair-tests/hair_test:
+    post:
+      tags: [Hair tests]
+      summary: List the authenticated user's hair tests
+      x-legacy-path: /HairTest/hair_test
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/treatments/get_treatment_history/{reference_no}:
+    get:
+      tags: [Treatments]
+      summary: Get treatment history for an assessment
+      x-legacy-path: /HairTest/get_treatment_history/{reference_no}
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: reference_no
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/reviews/review_get:
+    get:
+      tags: [Reviews]
+      summary: List reviews for app content
+      description: Returns the current review list. The current implementation does not apply query-string filters; use the legacy POST body for the supported filters.
+      x-legacy-path: /Review/review_get
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    post:
+      tags: [Reviews]
+      summary: List reviews using the legacy form body
+      description: Prefer GET for new integrations. This POST is retained for the Flutter-compatible legacy contract.
+      x-legacy-path: /Review/review_get
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewQueryRequest' }
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ReviewQueryRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/reviews/create:
+    post:
+      tags: [Reviews]
+      summary: Submit a review
+      x-legacy-path: /Review/create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewCreateRequest' }
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ReviewCreateRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/notifications/device-tokens:
+    post:
+      tags: [Notifications]
+      summary: Register the authenticated user's FCM device token
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceTokenRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [Notifications]
+      summary: Remove the authenticated user's FCM device token
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+              required: [token]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/videos:
+    get:
+      tags: [Videos]
+      summary: List published Cloudinary and YouTube videos
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/admin/users:
+    get:
+      tags: [Admin]
+      summary: Search users
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: search
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/hair-tests:
+    get:
+      tags: [Admin]
+      summary: List patient hair assessments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/treatments:
+    get:
+      tags: [Admin]
+      summary: List treatment plans
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Create a treatment plan for a hair assessment
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminTreatmentRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/reviews:
+    get:
+      tags: [Admin]
+      summary: List reviews for moderation
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, active, rejected] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/reviews/status:
+    patch:
+      tags: [Admin]
+      summary: Approve, reject, or return a review to moderation
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminReviewStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/notifications/send-to-user:
+    post:
+      tags: [Admin]
+      summary: Send an FCM notification to a user's registered devices
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminPushRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/media/video-upload-signature:
+    post:
+      tags: [Admin]
+      summary: Create a short-lived signature for a Cloudinary video upload
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VideoUploadSignatureRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/media/videos:
+    get:
+      tags: [Admin]
+      summary: List Cloudinary and YouTube video records
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Save an uploaded Cloudinary video as a draft
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CloudinaryVideoRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/media/videos/youtube:
+    post:
+      tags: [Admin]
+      summary: Add a YouTube video as a draft
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/YouTubeVideoRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/media/videos/status:
+    patch:
+      tags: [Admin]
+      summary: Publish, hide, or return a video to draft
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VideoStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        status: { type: string, const: success }
+        message: { type: string }
+        data: {}
+        token: { type: string }
+        type: { type: string }
+        is_registered: { type: boolean }
+        is_admin: { type: boolean }
+        reference_no: { type: string }
+      required: [status]
+    ErrorEnvelope:
+      type: object
+      properties:
+        status: { type: string, const: error }
+        message: { type: string }
+        details: {}
+      required: [status, message]
+    LoginRequest:
+      type: object
+      properties:
+        login: { type: string, description: Phone number or email address }
+        mobile: { type: string, description: Legacy alias for login }
+        email: { type: string, description: Legacy alias for login }
+      anyOf:
+        - required: [login]
+        - required: [mobile]
+        - required: [email]
+    VerifyOtpRequest:
+      allOf:
+        - $ref: '#/components/schemas/LoginRequest'
+        - type: object
+          properties:
+            otp: { type: string, pattern: '^\d{6}$' }
+          required: [otp]
+    RegisterUserRequest:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        age: { oneOf: [{ type: string }, { type: integer }] }
+        gender: { type: string }
+        city: { type: string }
+        occupation: { type: string }
+        platform: { type: string, default: app }
+      required: [name]
+      oneOf:
+        - required: [email]
+        - required: [phone]
+    RegisterUserResponse:
+      type: object
+      properties:
+        status: { type: boolean, const: true }
+        message: { type: string }
+        token: { type: string }
+        is_registered: { type: boolean }
+        is_admin: { type: boolean }
+        data: {}
+      required: [status, message, token, is_registered, is_admin]
+    ProfileUpdateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        contact: { type: string }
+    HairTestFields:
+      type: object
+      properties:
+        full_name: { type: string }
+        name: { type: string, description: Legacy alias for full_name }
+        email: { type: string, format: email }
+        phone: { type: string }
+        age: { type: string }
+        gender: { type: string }
+        city: { type: string }
+        occupation: { type: string }
+        hair_fall_start: { type: string }
+        hair_fall_pattern: { type: string }
+        daily_hair_fall: { type: string }
+        hair_fall_increasing: { type: string }
+        dandruff: { type: string }
+        scalp_condition: { type: string }
+        scalp_symptoms: { type: string, description: May be a JSON-encoded array }
+        hair_type: { type: string }
+        medical_conditions: { type: string, description: May be a JSON-encoded array }
+        recent_events: { type: string, description: May be a JSON-encoded array }
+        stress_level: { type: string }
+        sleep_quality: { type: string }
+        diet_type: { type: string }
+        protein_intake: { type: string }
+        family_history: { type: string }
+        have_taken_treatment: { type: string }
+        previous_treatments: { type: string, description: May be a JSON-encoded array }
+        treatment_results: { type: string }
+        main_concern: { type: string }
+        looking_for: { type: string }
+        hair_loss_stage: { type: string }
+      anyOf:
+        - required: [full_name]
+        - required: [name]
+    ReviewQueryRequest:
+      type: object
+      properties:
+        review_type: { type: string }
+        status: { type: string }
+        page: { type: string }
+    ReviewCreateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        rating: { oneOf: [{ type: string }, { type: number, minimum: 1, maximum: 5 }] }
+        category: { type: string }
+        message: { type: string }
+        avatar: { type: string, format: uri }
+        review_type: { type: string }
+        page: { type: string }
+      required: [name, message]
+    DeviceTokenRequest:
+      type: object
+      properties:
+        token: { type: string }
+        platform: { type: string, enum: [android, ios, web] }
+      required: [token, platform]
+    AdminTreatmentRequest:
+      type: object
+      properties:
+        reference_no: { type: string }
+        treatment_name: { type: string }
+        duration: { type: string }
+        instructions: { type: string }
+        doctor_name: { type: string }
+        date: { type: string, format: date }
+      required: [reference_no, treatment_name]
+    AdminReviewStatusRequest:
+      type: object
+      properties:
+        id: { type: integer }
+        status: { type: string, enum: [pending, active, rejected] }
+      required: [id, status]
+    AdminPushRequest:
+      type: object
+      properties:
+        user_id: { type: integer }
+        title: { type: string, maxLength: 120 }
+        body: { type: string, maxLength: 1000 }
+        data: { type: object, additionalProperties: { type: string } }
+      required: [user_id, title, body]
+    VideoUploadSignatureRequest:
+      type: object
+      properties:
+        public_id: { type: string, pattern: '^[a-zA-Z0-9_-]{1,100}$' }
+    CloudinaryVideoRequest:
+      type: object
+      properties:
+        public_id: { type: string }
+        title: { type: string, maxLength: 160 }
+        description: { type: string, maxLength: 2000 }
+      required: [public_id, title]
+    YouTubeVideoRequest:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        title: { type: string, maxLength: 160 }
+        description: { type: string, maxLength: 2000 }
+      required: [url, title]
+    VideoStatusRequest:
+      type: object
+      properties:
+        public_id: { type: string }
+        status: { type: string, enum: [draft, published, hidden] }
+      required: [public_id, status]
+  responses:
+    Success:
+      description: Request completed successfully
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+    BadRequest:
+      description: Invalid request data
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimited:
+      description: Too many requests from this IP address within the current 15-minute window
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: Missing, invalid, or expired bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: The authenticated user is not in the admin allowlist
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ServerError:
+      description: Unexpected backend error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }

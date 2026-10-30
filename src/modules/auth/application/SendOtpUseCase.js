@@ -1,6 +1,8 @@
+import { randomInt } from 'node:crypto';
 import { Otp } from '../domain/Otp.js';
 import { BadRequestError } from '../../../shared/errors/index.js';
 import { config } from '../../../config/env.js';
+import { isValidLogin, normalizeLogin } from '../../../shared/utils/normalize-login.js';
 
 export class SendOtpUseCase {
   constructor({ otpRepository, userRepository, smsService }) {
@@ -14,16 +16,19 @@ export class SendOtpUseCase {
       throw new BadRequestError('Mobile number or email address is required.');
     }
 
-    const cleanLogin = login.trim();
+    const cleanLogin = normalizeLogin(login);
+    if (!isValidLogin(cleanLogin)) {
+      throw new BadRequestError('Enter a valid email address or phone number.');
+    }
 
     // Check if the user already exists in the system
     const existingUser = await this.userRepository.findByLogin(cleanLogin);
     const type = existingUser ? 'login' : 'register';
 
     // Generate 6-digit OTP (use default in dev for easy testing or random)
-    const otpCode = config.isDev && config.otp.defaultOtp 
-      ? config.otp.defaultOtp 
-      : Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = config.isDev && config.otp.defaultOtp
+      ? config.otp.defaultOtp
+      : String(randomInt(100000, 1000000));
 
     const expiresAt = new Date(Date.now() + config.otp.expiryMinutes * 60 * 1000);
 
@@ -35,10 +40,19 @@ export class SendOtpUseCase {
     });
 
     await this.otpRepository.save(otpEntity);
-    await this.smsService.sendOtp(cleanLogin, otpCode);
+    try {
+      await this.smsService.sendOtp(cleanLogin, otpCode);
+    } catch (error) {
+      await this.otpRepository.delete(cleanLogin);
+      throw error;
+    }
+
+    const testMessage = config.isDev && config.otp.defaultOtp
+      ? ` (For testing, OTP is ${otpCode})`
+      : '';
 
     return {
-      message: `OTP sent successfully to ${cleanLogin}. (For testing, OTP is ${otpCode})`,
+      message: `OTP sent successfully to ${cleanLogin}.${testMessage}`,
       type,
     };
   }

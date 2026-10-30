@@ -16,9 +16,9 @@ export class CreateReviewUseCase {
       category: category || 'Hair Treatment',
       message,
       avatar: avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde',
-      is_verified: true,
+      is_verified: false,
       review_type,
-      status: 'active',
+      status: 'pending',
       page,
     });
 

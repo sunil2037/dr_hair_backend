@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../../../shared/middlewares/auth.middleware.js';
+import { requireRegisteredUser } from '../../../shared/middlewares/registered-user.middleware.js';
 import { uploadScalpPhotos } from '../../../shared/middlewares/upload.middleware.js';
 
 export const createHairTestRouter = ({ hairTestController }) => {
@@ -15,10 +16,10 @@ export const createHairTestRouter = ({ hairTestController }) => {
 
   // Legacy & Flutter App routes:
   // POST /HairTest/submit_form
-  router.post('/submit_form', authenticateToken, scalpUploadFields, hairTestController.submitForm);
+  router.post('/submit_form', authenticateToken, requireRegisteredUser, scalpUploadFields, hairTestController.submitForm);
 
   // POST /HairTest/hair_test
-  router.post('/hair_test', authenticateToken, hairTestController.getHairTests);
+  router.post('/hair_test', authenticateToken, requireRegisteredUser, hairTestController.getHairTests);
 
   return router;
 };

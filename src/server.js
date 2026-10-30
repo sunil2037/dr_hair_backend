@@ -1,15 +1,18 @@
 import { createApp } from './app.js';
 import { config } from './config/env.js';
 import { logger } from './shared/utils/logger.js';
+import { connectDatabase, disconnectDatabase } from './shared/database/mongodb.js';
 
 const { app } = createApp();
 
-const server = app.listen(config.port, () => {
+await connectDatabase();
+
+const server = app.listen(config.port, '0.0.0.0', () => {
   logger.info(`=======================================================`);
   logger.info(`🚀 Dr. Hair Backend Server running in [${config.env}] mode`);
   logger.info(`📡 Server URL: http://localhost:${config.port}`);
-  logger.info(`🗂️  Static Uploads: http://localhost:${config.port}/uploads/`);
   logger.info(`📋 Health check: http://localhost:${config.port}/health`);
+  logger.info(`📚 API docs: http://localhost:${config.port}/api/docs`);
   logger.info(`=======================================================`);
   logger.info(`Mapped Flutter Endpoints:`);
   logger.info(` - POST /auth/send_login_otp`);
@@ -30,8 +33,12 @@ const server = app.listen(config.port, () => {
 const handleShutdown = (signal) => {
   logger.info(`Received ${signal}. Gracefully shutting down HTTP server...`);
   server.close(() => {
-    logger.info('HTTP server closed. Exiting process.');
-    process.exit(0);
+    disconnectDatabase()
+      .catch((error) => logger.error('MongoDB disconnect failed:', error))
+      .finally(() => {
+        logger.info('HTTP server closed. Exiting process.');
+        process.exit(0);
+      });
   });
 
   // Force close if graceful shutdown takes too long

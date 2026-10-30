@@ -129,5 +129,8 @@ export const store = {
       created_at: '2026-03-20T16:45:00.000Z',
     },
   ],
+
+  deviceTokens: [],
+  videos: [],
 };
 

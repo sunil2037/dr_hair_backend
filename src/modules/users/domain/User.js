@@ -13,6 +13,7 @@ export class User {
     occupation = null,
     platform = 'app',
     profile_url = null,
+    role = 'user',
     created_at = new Date(),
     updated_at = new Date(),
   }) {
@@ -26,6 +27,7 @@ export class User {
     this.occupation = occupation;
     this.platform = platform;
     this.profile_url = profile_url;
+    this.role = role;
     this.created_at = created_at;
     this.updated_at = updated_at;
   }

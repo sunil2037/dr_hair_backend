@@ -1,197 +1,84 @@
-# 💈 Dr. Hair Backend - Modular Monolith with Clean Architecture
+# Dr. Hair API
 
-A robust, enterprise-grade Express.js backend engineered as a **Modular Monolith** using **Clean Architecture** principles.
+Express.js API for the Dr. Hair Flutter app and admin panel. The backend is a modular monolith. MongoDB Atlas is the durable store when `MONGODB_URI` is set; local development can fall back to seeded in-memory data. Images and scalp photos use Cloudinary, test videos use Cloudinary, and notifications use Firebase Cloud Messaging.
 
-This backend serves the **Dr. Hair** application ecosystem (Flutter mobile app and Admin Panel), implementing 100% of the specifications defined in [`flutter_app/API_DOCUMENTATION.md`](../flutter_app/API_DOCUMENTATION.md).
+The OpenAPI contract is in [`docs/openapi.yaml`](docs/openapi.yaml). The screen-based database/API design is in [`docs/DATA_ARCHITECTURE_AND_API_DESIGN.md`](docs/DATA_ARCHITECTURE_AND_API_DESIGN.md), with rollout state in [`docs/API_ROADMAP.md`](docs/API_ROADMAP.md).
 
----
+## Current deployment state
 
-## 🏛️ Architecture Overview
+`render.yaml` prepares a free Render web service in Singapore, the closest Render region to the Atlas cluster in Mumbai. No live service has been created yet: the Atlas URI is missing, Render still needs a Git source, and admin/CORS values need to be chosen. Render's free service sleeps after 15 minutes idle, takes about a minute to wake, and has an ephemeral filesystem. Use Cloudinary and Atlas for persistent files and records; use an always-on Render plan before production traffic.
 
-The system blends **Modular Monolith** domain partitioning with Robert C. Martin's **Clean Architecture (Onion / Hexagonal Architecture)**:
+## Stack
 
-```
-                  ┌─────────────────────────────────────┐
-                  │         HTTP / Express.js           │
-                  │   (Controllers, Routes, Multer)     │  Presentation Layer
-                  └──────────────────┬──────────────────┘
-                                     │ calls
-                                     ▼
-                  ┌─────────────────────────────────────┐
-                  │              Use Cases              │  Application Layer
-                  │   (Pure Business Workflows & DTOs)  │
-                  └──────────┬──────────────────▲───────┘
-                             │ uses             │ implements
-                             ▼                  │
-      ┌─────────────────────────────┐    ┌──────┴──────────────────────┐
-      │       Domain Entities       │    │     Infrastructure Layer    │
-      │   & Repository Contracts    │    │ (In-Memory/DB Repositories, │
-      │  (Zero External Frameworks) │    │  JWT, SMS/Email, Storage)   │
-      └─────────────────────────────┘    └─────────────────────────────┘
-```
+- Node.js 22 and Express.js
+- MongoDB Atlas via Mongoose for durable data
+- JWT bearer tokens for app sessions and admin authorization
+- Cloudinary for profile/scalp images and test video uploads
+- Firebase Admin SDK for FCM delivery
+- OpenAPI 3.1 and Swagger UI
+- No Redis dependency at this stage
 
-### Key Architectural Tenets:
-1. **The Dependency Rule**: Inner circles (Domain) have zero knowledge of outer circles (Express, Multer, Database).
-2. **Domain Isolation**: Each business module (`auth`, `users`, `hair_test`, `treatment`, `review`) encapsulates its own domain entities, repository contracts, application use cases, and HTTP controllers.
-3. **Inter-Module Communication**: Modules communicate via well-typed application use cases and domain interfaces, preventing tight coupling.
-4. **Pluggable Persistence**: Repositories adhere to abstract interfaces (`IUserRepository`, etc.). Swapping in-memory/JSON storage for PostgreSQL, MySQL (via Prisma/TypeORM/Knex), or MongoDB requires zero changes to domain logic or HTTP controllers.
+## Run locally
 
----
+Requirements: Node.js 22 or later and npm.
 
-## 📁 Directory Structure
-
-```
-backend/
-├── .env.example                       # Sample environment variables
-├── .env                               # Active environment variables
-├── .gitignore
-├── package.json
-├── README.md                          # Architecture & API documentation
-├── uploads/                           # Uploaded media assets
-│   ├── profiles/                      # User profile photos
-│   └── scalp/                         # Multi-angle diagnostic scalp photos
-└── src/
-    ├── app.js                         # Express app assembly & global middleware
-    ├── server.js                      # HTTP server runner & graceful shutdown
-    ├── container.js                   # Dependency injection container
-    │
-    ├── config/
-    │   └── env.js                     # Environment variable validation & defaults
-    │
-    ├── shared/                        # Cross-cutting reusable kernel
-    │   ├── errors/                    # AppError, BadRequestError, UnauthorizedError, etc.
-    │   ├── middlewares/               # auth.middleware, error.middleware, upload.middleware
-    │   ├── utils/                     # response formatters, logger, JWT token service
-    │   └── database/                  # Central repository data store with seed data
-    │
-    └── modules/                       # Cohesive Business Modules
-        ├── auth/                      # Authentication & OTP Flow
-        │   ├── domain/                # Otp entity, IOtpRepository interface
-        │   ├── application/           # SendOtpUseCase, VerifyOtpUseCase
-        │   ├── infrastructure/        # OtpRepository, SmsService
-        │   └── presentation/          # auth.controller, auth.routes
-        │
-        ├── users/                     # Users & Profiles (/Admin/* endpoints)
-        │   ├── domain/                # User entity, IUserRepository interface
-        │   ├── application/           # CheckUserUseCase, RegisterUserUseCase, etc.
-        │   ├── infrastructure/        # UserRepository
-        │   └── presentation/          # user.controller, user.routes
-        │
-        ├── hair_test/                 # Hair Loss Questionnaire & Scalp Photos
-        │   ├── domain/                # HairTest entity, IHairTestRepository interface
-        │   ├── application/           # SubmitHairTestUseCase, GetHairTestsUseCase
-        │   ├── infrastructure/        # HairTestRepository
-        │   └── presentation/          # hair_test.controller, hair_test.routes
-        │
-        ├── treatment/                 # Doctor Diagnoses & Treatment Plans
-        │   ├── domain/                # Treatment entity, ITreatmentRepository interface
-        │   ├── application/           # GetTreatmentHistoryUseCase
-        │   ├── infrastructure/        # TreatmentRepository
-        │   └── presentation/          # treatment.controller, treatment.routes
-        │
-        └── review/                    # Patient Reviews & Testimonials
-            ├── domain/                # Review entity, IReviewRepository interface
-            ├── application/           # GetReviewsUseCase, CreateReviewUseCase
-            ├── infrastructure/        # ReviewRepository
-            └── presentation/          # review.controller, review.routes
-```
-
----
-
-## 🚀 Getting Started
-
-### 1. Prerequisites
-- **Node.js**: v18.0.0 or higher
-- **npm**: v9.0.0 or higher
-
-### 2. Install Dependencies
-```bash
-cd backend
-npm install
-```
-
-### 3. Environment Variables
-Copy `.env.example` to `.env` if not already present:
-```bash
-cp .env.example .env
-```
-
-Default configuration in `.env`:
-```env
-PORT=5001
-NODE_ENV=development
-BASE_URL=http://localhost:5001
-JWT_SECRET=drhair_super_secure_jwt_secret_key_2026_change_in_production
-JWT_EXPIRES_IN=30d
-DEFAULT_TEST_OTP=123456
-OTP_EXPIRY_MINUTES=10
-```
-
-### 4. Running the Server
-
-#### Development Mode (with hot-reload):
-```bash
+```sh
+npm ci
+if [ ! -f .env ]; then cp .env.example .env; fi
 npm run dev
 ```
 
-#### Production Mode:
-```bash
-npm start
-```
+Set `JWT_SECRET` to a private random string of at least 32 characters. Leave `MONGODB_URI` empty only for local demo mode; that mode uses process memory and seeded data, so writes disappear when the process restarts. Production requires a valid Atlas URI and fails startup without it.
 
-#### Running Tests:
-```bash
-npm test
-```
+The default test OTP is available only in development. OTP request and verification endpoints are rate-limited. No SMS/email delivery provider is configured yet, so production OTP sign-in is not ready.
 
----
+Keep `.env` private and out of Git. The current `.gitignore` excludes it. Render secrets belong in the Render environment settings, not in the Blueprint or source code.
 
-## 📡 API Endpoints Reference
+## Environment variables
 
-The backend mounts both **legacy Flutter-compatible endpoints** (matching `flutter_app/API_DOCUMENTATION.md`) and **standard versioned RESTful routes (`/api/v1/*`)**.
-
-### 1. Authentication (`/auth`)
-| Method | Endpoint | Description | Auth |
-|---|---|---|:---:|
-| `POST` | `/auth/send_login_otp` | Sends OTP to phone/email (`{ login }`) | ❌ |
-| `POST` | `/auth/verify_login_otp` | Verifies 6-digit OTP & returns JWT (`{ login, otp }`) | ❌ |
-
-> **Development Tip:** For any phone number or email, use default OTP `123456` in development mode.
-
-### 2. User & Admin Profile (`/Admin`)
-| Method | Endpoint | Description | Auth |
-|---|---|---|:---:|
-| `POST` | `/Admin/checkUser` | Validates session & returns user details | ✅ |
-| `POST` | `/Admin/loginSignup` | Registers new user profile demographics | ❌ / Optional |
-| `POST` | `/Admin/get_profile` | Retrieves user profile data | ✅ |
-| `POST` | `/Admin/updateProfile` | Updates name, email, contact | ✅ |
-| `POST` | `/Admin/profileUpdate` | Uploads profile picture avatar (`profile` file) | ✅ |
-
-### 3. Hair Test Assessment (`/HairTest`)
-| Method | Endpoint | Description | Auth |
-|---|---|---|:---:|
-| `POST` | `/HairTest/submit_form` | Submits complete hair questionnaire & scalp photos | ✅ |
-| `POST` | `/HairTest/hair_test` | Retrieves user's hair test history | ✅ |
-| `GET` | `/HairTest/get_treatment_history/:reference_no` | Doctor treatment plans by test reference | ✅ |
-
-### 4. Reviews & Testimonials (`/Review`)
-| Method | Endpoint | Description | Auth |
-|---|---|---|:---:|
-| `POST` | `/Review/review_get` | Fetches active testimonials for home page | ❌ |
-| `POST` | `/Review/create` | Submits a new customer review | ❌ / Optional |
-
-### 5. Static Assets & Media CDN
-| URL Path | Description |
+| Variable | Purpose |
 |---|---|
-| `http://localhost:5001/uploads/profiles/:file_name` | User profile avatar photos |
-| `http://localhost:5001/uploads/scalp/:file_name` | Scalp diagnostic photos |
+| `PORT` | Local HTTP port; Render sets its own port |
+| `NODE_ENV` | Use `development` locally and `production` on Render |
+| `JWT_SECRET` | JWT signing secret, at least 32 characters |
+| `JWT_EXPIRES_IN` | Token lifetime; defaults to `30d` |
+| `MAX_FILE_SIZE_MB` | Maximum accepted image upload size |
+| `MONGODB_URI` | MongoDB Atlas connection URI; required in production |
+| `ADMIN_EMAILS` | Comma-separated email allowlist for admin tokens |
+| `CORS_ORIGINS` | Comma-separated exact browser origins for the admin panel |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Cloudinary server credentials |
+| `CLOUDINARY_IMAGE_FOLDER`, `CLOUDINARY_VIDEO_FOLDER` | Cloudinary folders |
+| `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Firebase Admin service-account credentials for FCM |
+| `DEFAULT_TEST_OTP` | Development-only six-digit testing code |
+| `OTP_EXPIRY_MINUTES` | OTP validity window |
 
----
+## API routes
 
-## 🧪 Testing Credentials (Pre-seeded Demo Data)
-The backend comes pre-seeded with test data for immediate Flutter integration:
-- **Phone Number**: `9876543210`
-- **Email**: `user@example.com`
-- **OTP**: `123456`
-- **Hair Test Reference**: `HT-2026-0042`
+All versioned routes are listed with request/response schemas in [`docs/openapi.yaml`](docs/openapi.yaml). Swagger UI is available at `/api/docs` when the server is running; the raw contract is served from `/api/openapi.yaml`.
 
+Main route groups:
+
+- `/api/v1/auth/*` — request and verify a login OTP
+- `/api/v1/users/*` — profile creation/update and profile photo upload
+- `/api/v1/hair-tests/*` — submit an assessment with optional scalp photos and list the signed-in user's assessments
+- `/api/v1/treatments/*` — read treatment history belonging to the signed-in user
+- `/api/v1/reviews/*` — public active reviews and moderated review submission
+- `/api/v1/notifications/*` — register/remove the signed-in user's FCM device token
+- `/api/v1/videos` — public published videos
+- `/api/v1/admin/*` — allowlisted admin operations for users, hair tests, treatments, reviews, videos, and per-user push notifications
+
+Legacy Flutter-compatible paths such as `/auth/*`, `/Admin/*`, `/HairTest/*`, and `/Review/*` remain mounted. Profile registration requires the bearer token returned by OTP verification and only accepts the identity verified by that OTP.
+
+## Render test deployment
+
+1. Put this backend repository on the Git provider account you want to connect to Render. Review the source first: a connected branch is shared with Render and pushes can trigger deployments.
+2. Create a Blueprint from the repository so Render reads `render.yaml`.
+3. Add `MONGODB_URI`, `ADMIN_EMAILS`, `CORS_ORIGINS`, Cloudinary, and Firebase values as private Render environment variables.
+4. Add the selected Render service region's outbound CIDR ranges to Atlas Network Access. Render's shared ranges can rotate; dedicated static egress IPs require a paid workspace. Do not allow every IP to reach Atlas.
+5. Open `/health`, then `/api/docs` on the generated `onrender.com` URL.
+
+The Atlas cluster and Cloudinary/Firebase projects are separate services; Render hosts only this Express API. Free Render is for testing and may sleep or hit monthly limits. The current smallest always-on paid web instance is listed on Render's pricing page; pricing and limits can change.
+
+## Not wired end to end yet
+
+Some Flutter screens and the admin panel still use mock/demo data. Their API base URLs and calls need to be connected after the test backend has a live URL. FCM registration is implemented on the server but still needs app-side API wiring. iOS notifications need APNs credentials and web notifications need VAPID setup. A real OTP delivery API is also needed before public use.

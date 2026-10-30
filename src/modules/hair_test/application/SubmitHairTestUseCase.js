@@ -1,8 +1,9 @@
 import { BadRequestError } from '../../../shared/errors/index.js';
 
 export class SubmitHairTestUseCase {
-  constructor({ hairTestRepository }) {
+  constructor({ hairTestRepository, imageStorage }) {
     this.hairTestRepository = hairTestRepository;
+    this.imageStorage = imageStorage;
   }
 
   async execute({ userId, formData, files = {} }) {
@@ -27,16 +28,19 @@ export class SubmitHairTestUseCase {
     const scalpPhotos = [];
     const photoKeys = ['photo_front', 'photo_top', 'photo_left', 'photo_right', 'photo_back'];
 
-    photoKeys.forEach((key) => {
+    for (const key of photoKeys) {
       if (files[key] && files[key][0]) {
-        const uploaded = files[key][0];
+        const uploaded = await this.imageStorage.uploadImage(
+          files[key][0].buffer,
+          'scalp',
+        );
         scalpPhotos.push({
-          file_name: uploaded.filename,
-          url: `uploads/scalp/${uploaded.filename}`,
+          file_name: uploaded.publicId,
+          url: uploaded.secureUrl,
           angle: key.replace('photo_', ''),
         });
       }
-    });
+    }
 
     const hairTest = await this.hairTestRepository.create({
       userId: userId ? parseInt(userId, 10) : null,

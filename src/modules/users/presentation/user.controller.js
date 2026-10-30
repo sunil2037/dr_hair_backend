@@ -1,4 +1,6 @@
 import { sendSuccess } from '../../../shared/utils/response.js';
+import { TokenService } from '../../../shared/utils/token.service.js';
+import { config } from '../../../config/env.js';
 
 export class UserController {
   constructor({
@@ -39,12 +41,28 @@ export class UserController {
         city,
         occupation,
         platform,
+        verifiedLogin: req.user?.login || req.user?.email || req.user?.phone,
+        userId: req.user?.id,
+      });
+      const login = req.user?.login || req.user?.email || req.user?.phone || '';
+      const isAdmin = config.admin.emails.includes(String(login).trim().toLowerCase());
+      const token = TokenService.generateToken({
+        id: result.user.id,
+        login: req.user?.login || req.user?.email || req.user?.phone,
+        name: result.user.name,
+        email: result.user.email,
+        phone: result.user.phone,
+        isRegistered: true,
+        role: isAdmin ? 'admin' : 'user',
       });
 
       // Align with documentation: { "status": true, "message": "User registered successfully." }
       return res.status(200).json({
         status: true,
         message: result.message,
+        token,
+        is_registered: true,
+        is_admin: isAdmin,
         data: result.user ? result.user.toPublicProfile() : undefined,
       });
     } catch (err) {
@@ -72,6 +90,7 @@ export class UserController {
         name,
         email,
         contact,
+        verifiedLogin: req.user?.login || req.user?.email || req.user?.phone,
       });
 
       return sendSuccess(res, { message: result.message });
