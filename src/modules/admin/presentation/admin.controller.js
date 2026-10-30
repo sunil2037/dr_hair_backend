@@ -2,12 +2,57 @@ import { BadRequestError, NotFoundError } from '../../../shared/errors/index.js'
 import { sendSuccess } from '../../../shared/utils/response.js';
 
 export class AdminController {
-  constructor({ userRepository, hairTestRepository, treatmentRepository, reviewRepository }) {
+  constructor({ userRepository, hairTestRepository, treatmentRepository, reviewRepository, adminAccountRepository, createAdminAccountUseCase }) {
     this.userRepository = userRepository;
     this.hairTestRepository = hairTestRepository;
     this.treatmentRepository = treatmentRepository;
     this.reviewRepository = reviewRepository;
+    this.adminAccountRepository = adminAccountRepository;
+    this.createAdminAccountUseCase = createAdminAccountUseCase;
   }
+
+  getCurrentAdmin = async (req, res, next) => {
+    try {
+      return sendSuccess(res, {
+        data: {
+          id: req.user?.id ? String(req.user.id) : null,
+          email: req.user?.login || req.user?.email || null,
+          name: req.user?.name || null,
+          role: req.user?.role || 'admin',
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listAdminAccounts = async (_req, res, next) => {
+    try {
+      const accounts = await this.adminAccountRepository.list();
+      return sendSuccess(res, { data: { items: accounts } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createAdminAccount = async (req, res, next) => {
+    try {
+      const result = await this.createAdminAccountUseCase.execute(req.body || {});
+      return sendSuccess(res, {
+        message: 'Admin account created. Copy its generated password now; it will not be shown again.',
+        data: {
+          admin: result.account,
+          credentials: {
+            login_id: result.account.email,
+            password: result.generatedPassword,
+          },
+        },
+        statusCode: 201,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 
   listUsers = async (req, res, next) => {
     try {

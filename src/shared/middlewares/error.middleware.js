@@ -17,7 +17,7 @@ export const errorHandler = (err, req, res, next) => {
   if (err.name === 'MulterError') {
     return sendError(res, {
       message: `File upload error: ${err.message}`,
-      statusCode: 400,
+      statusCode: err.code === 'LIMIT_FILE_SIZE' ? 413 : 400,
     });
   }
 

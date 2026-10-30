@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { parseFormData } from '../../../shared/middlewares/upload.middleware.js';
+import { authenticateToken } from '../../../shared/middlewares/auth.middleware.js';
 import { sendError } from '../../../shared/utils/response.js';
 
 const createOtpLimiter = (limit, message) => rateLimit({
@@ -22,6 +23,7 @@ export const createAuthRouter = ({ authController }) => {
 
   // POST /auth/verify_login_otp
   router.post('/verify_login_otp', verifyOtpLimiter, parseFormData, authController.verifyLoginOtp);
+  router.get('/session', authenticateToken, authController.getSession);
 
   return router;
 };

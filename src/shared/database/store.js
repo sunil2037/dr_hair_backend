@@ -4,6 +4,7 @@
  */
 
 export const store = {
+  adminAccounts: [],
   users: [
     {
       id: 12,

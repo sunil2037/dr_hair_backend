@@ -1,9 +1,10 @@
 import { sendSuccess } from '../../../shared/utils/response.js';
 
 export class AuthController {
-  constructor({ sendOtpUseCase, verifyOtpUseCase }) {
+  constructor({ sendOtpUseCase, verifyOtpUseCase, userRepository }) {
     this.sendOtpUseCase = sendOtpUseCase;
     this.verifyOtpUseCase = verifyOtpUseCase;
+    this.userRepository = userRepository;
   }
 
   sendLoginOtp = async (req, res, next) => {
@@ -34,6 +35,26 @@ export class AuthController {
           token: result.token,
           is_registered: result.isRegistered,
           is_admin: result.isAdmin,
+          ...(result.user ? { data: result.user.toPublicProfile() } : {}),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getSession = async (req, res, next) => {
+    try {
+      const user = req.user?.id
+        ? await this.userRepository.findById(req.user.id)
+        : null;
+      return sendSuccess(res, {
+        data: {
+          login: user?.email || user?.phone || req.user?.login || req.user?.email || req.user?.phone || null,
+          name: user?.name || null,
+          is_registered: Boolean(user),
+          is_admin: req.user?.role === 'admin',
+          ...(user ? { user: user.toPublicProfile() } : {}),
         },
       });
     } catch (err) {

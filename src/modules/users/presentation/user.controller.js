@@ -1,6 +1,5 @@
 import { sendSuccess } from '../../../shared/utils/response.js';
 import { TokenService } from '../../../shared/utils/token.service.js';
-import { config } from '../../../config/env.js';
 
 export class UserController {
   constructor({
@@ -45,7 +44,6 @@ export class UserController {
         userId: req.user?.id,
       });
       const login = req.user?.login || req.user?.email || req.user?.phone || '';
-      const isAdmin = config.admin.emails.includes(String(login).trim().toLowerCase());
       const token = TokenService.generateToken({
         id: result.user.id,
         login: req.user?.login || req.user?.email || req.user?.phone,
@@ -53,7 +51,7 @@ export class UserController {
         email: result.user.email,
         phone: result.user.phone,
         isRegistered: true,
-        role: isAdmin ? 'admin' : 'user',
+        role: 'user',
       });
 
       // Align with documentation: { "status": true, "message": "User registered successfully." }
@@ -62,7 +60,7 @@ export class UserController {
         message: result.message,
         token,
         is_registered: true,
-        is_admin: isAdmin,
+        is_admin: false,
         data: result.user ? result.user.toPublicProfile() : undefined,
       });
     } catch (err) {
@@ -84,16 +82,24 @@ export class UserController {
   updateProfile = async (req, res, next) => {
     try {
       const userId = req.user?.id;
-      const { name, email, contact } = req.body;
+      const { name, email, contact, age, gender, city, occupation, profile_url: profileUrl } = req.body;
       const result = await this.updateProfileUseCase.execute({
         userId,
         name,
         email,
         contact,
+        age,
+        gender,
+        city,
+        occupation,
+        profileUrl,
         verifiedLogin: req.user?.login || req.user?.email || req.user?.phone,
       });
 
-      return sendSuccess(res, { message: result.message });
+      return sendSuccess(res, {
+        message: result.message,
+        data: result.user.toPublicProfile(),
+      });
     } catch (err) {
       next(err);
     }

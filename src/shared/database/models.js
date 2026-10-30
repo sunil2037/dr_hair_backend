@@ -22,6 +22,20 @@ const userSchema = new Schema(
   { collection: 'users', strict: false, versionKey: false },
 );
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
+userSchema.index({ role: 1, created_at: -1, id: -1 });
+
+const adminAccountSchema = new Schema(
+  {
+    email: { type: String, required: true, trim: true, lowercase: true, unique: true, index: true },
+    name: { type: String, required: true, trim: true },
+    passwordHash: { type: String, required: true, select: false },
+    role: { type: String, enum: ['admin'], default: 'admin', required: true },
+    active: { type: Boolean, default: true, index: true },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'admin_accounts', versionKey: false },
+);
 
 const otpSchema = new Schema(
   {
@@ -110,6 +124,7 @@ const counterSchema = new Schema(
 );
 
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);
+export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.model('DrHairAdminAccount', adminAccountSchema);
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
 export const HairTestModel = mongoose.models.DrHairHairTest || mongoose.model('DrHairHairTest', hairTestSchema);
 export const TreatmentModel = mongoose.models.DrHairTreatment || mongoose.model('DrHairTreatment', treatmentSchema);

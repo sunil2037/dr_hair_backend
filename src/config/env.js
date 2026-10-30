@@ -11,10 +11,8 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 const environment = process.env.NODE_ENV || 'development';
 const jwtSecret = process.env.JWT_SECRET?.trim();
 const defaultTestOtp = process.env.DEFAULT_TEST_OTP?.trim() || '';
-const adminEmails = (process.env.ADMIN_EMAILS || '')
-  .split(',')
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
+const superAdminId = process.env.SUPER_ADMIN_ID?.trim().toLowerCase() || '';
+const superAdminPasswordHash = process.env.SUPER_ADMIN_PASSWORD_HASH?.trim() || '';
 
 if (!jwtSecret || jwtSecret.length < 32) {
   throw new Error('JWT_SECRET must be set to a unique value of at least 32 characters.');
@@ -22,6 +20,10 @@ if (!jwtSecret || jwtSecret.length < 32) {
 
 if (defaultTestOtp && !/^\d{6}$/.test(defaultTestOtp)) {
   throw new Error('DEFAULT_TEST_OTP must contain exactly 6 digits when configured.');
+}
+
+if (Boolean(superAdminId) !== Boolean(superAdminPasswordHash)) {
+  throw new Error('SUPER_ADMIN_ID and SUPER_ADMIN_PASSWORD_HASH must be configured together.');
 }
 
 export const config = {
@@ -40,7 +42,9 @@ export const config = {
   },
 
   admin: {
-    emails: adminEmails,
+    superAdminId,
+    superAdminPasswordHash,
+    superAdminName: process.env.SUPER_ADMIN_NAME?.trim() || 'Dr. Hair Super Admin',
   },
 
   cors: {
@@ -52,6 +56,7 @@ export const config = {
   
   upload: {
     maxFileSize: (parseInt(process.env.MAX_FILE_SIZE_MB, 10) || 10) * 1024 * 1024,
+    maxMediaFileSize: (parseInt(process.env.MAX_MEDIA_FILE_SIZE_MB, 10) || 100) * 1024 * 1024,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'],
   },
 

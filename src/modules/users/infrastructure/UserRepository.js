@@ -128,20 +128,26 @@ export class UserRepository extends IUserRepository {
     const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
     const cleanSearch = String(search).trim();
     if (isMongoConnected()) {
-      const filter = {};
+      const filter = { role: 'user' };
       if (cleanSearch) {
         const expression = new RegExp(escapeRegex(cleanSearch), 'i');
         filter.$or = [{ name: expression }, { email: expression }, { phone: expression }];
       }
       const [records, total] = await Promise.all([
-        UserModel.find(filter).sort({ created_at: -1 }).skip((safePage - 1) * safeLimit).limit(safeLimit).lean(),
+        UserModel.find(filter)
+          .select('id name email phone age gender city occupation profile_url role created_at')
+          .sort({ created_at: -1, id: -1 })
+          .skip((safePage - 1) * safeLimit)
+          .limit(safeLimit)
+          .lean(),
         UserModel.countDocuments(filter),
       ]);
       return { items: records.map(toUser), total, page: safePage, limit: safeLimit };
     }
     const query = cleanSearch.toLowerCase();
     const matched = store.users.filter((user) =>
-      !query || [user.name, user.email, user.phone].some((value) => String(value || '').toLowerCase().includes(query)),
+      (user.role || 'user') === 'user'
+      && (!query || [user.name, user.email, user.phone].some((value) => String(value || '').toLowerCase().includes(query))),
     );
     const start = (safePage - 1) * safeLimit;
     return {

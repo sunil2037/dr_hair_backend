@@ -11,13 +11,26 @@ export class UpdateProfilePictureUseCase {
       throw new BadRequestError('User ID is required');
     }
 
-    if (!file) {
-      throw new BadRequestError('Profile image file is required');
-    }
-
     const user = await this.userRepository.findById(userId);
     if (!user) {
       throw new NotFoundError('User not found.');
+    }
+
+    if (action === 'remove') {
+      const updatedUser = await this.userRepository.updateAvatar(userId, null);
+      return {
+        profileUrl: null,
+        user: updatedUser,
+        message: 'Profile photo removed successfully.',
+      };
+    }
+
+    if (action !== 'upload') {
+      throw new BadRequestError('action must be upload or remove.');
+    }
+
+    if (!file) {
+      throw new BadRequestError('Profile image file is required');
     }
 
     // Relative path stored in database (e.g. 'uploads/profiles/filename.jpg')

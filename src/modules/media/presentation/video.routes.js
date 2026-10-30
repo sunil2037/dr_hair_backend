@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../../../shared/middlewares/auth.middleware.js';
-import { requireAdmin } from '../../../shared/middlewares/admin.middleware.js';
+import { requireSuperAdmin } from '../../../shared/middlewares/admin.middleware.js';
 
 export const createVideoRouter = ({ videoController }) => {
   const publicRouter = Router();
@@ -8,7 +8,7 @@ export const createVideoRouter = ({ videoController }) => {
 
   publicRouter.get('/', videoController.listPublished);
 
-  adminRouter.use(authenticateToken, requireAdmin);
+  adminRouter.use(authenticateToken, requireSuperAdmin);
   adminRouter.post('/upload-signature', videoController.uploadSignature);
   adminRouter.post('/', videoController.saveUploadedVideo);
   adminRouter.post('/youtube', videoController.addYouTubeVideo);

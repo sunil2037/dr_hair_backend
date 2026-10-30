@@ -54,10 +54,12 @@ export const createApp = () => {
       openapi: '/api/openapi.yaml',
       endpoints: {
         auth: ['/auth/send_login_otp', '/auth/verify_login_otp'],
+        adminAuth: ['/api/v1/admin-auth/login'],
         users: ['/api/v1/users/checkUser', '/api/v1/users/loginSignup', '/api/v1/users/get_profile'],
         hairTest: ['/HairTest/submit_form', '/HairTest/hair_test', '/HairTest/get_treatment_history/:reference_no'],
         review: ['/Review/review_get'],
         videos: ['/api/v1/videos'],
+      media: ['/api/v1/media/upload'],
         notifications: ['/api/v1/notifications/device-tokens'],
         admin: ['/api/v1/admin/users', '/api/v1/admin/hair-tests', '/api/v1/admin/treatments', '/api/v1/admin/reviews'],
       },
@@ -112,11 +114,13 @@ export const createApp = () => {
 
   // 4. Versioned RESTful API Routes (Modern Aliases)
   app.use('/api/v1/auth', container.routers.authRouter);
+  app.use('/api/v1/admin-auth', container.routers.adminAuthRouter);
   app.use('/api/v1/users', container.routers.userRouter);
   app.use('/api/v1/hair-tests', container.routers.hairTestRouter);
   app.use('/api/v1/treatments', container.routers.treatmentRouter);
   app.use('/api/v1/reviews', container.routers.reviewRouter);
   app.use('/api/v1/notifications', container.routers.notificationRouter);
+  app.use('/api/v1/media', container.routers.mediaRouter);
   app.use('/api/v1/videos', container.routers.videoPublicRouter);
   app.use('/api/v1/admin', container.routers.adminRouter);
 

@@ -42,10 +42,6 @@ export class VerifyOtpUseCase {
 
     // Check if user exists in database
     const user = await this.userRepository.findByLogin(cleanLogin);
-    const isAdmin =
-      config.admin.emails.includes(cleanLogin.toLowerCase())
-      || user?.role === 'admin';
-
     // Generate JWT auth token
     const tokenPayload = user
       ? {
@@ -55,12 +51,13 @@ export class VerifyOtpUseCase {
           email: user.email,
           phone: user.phone,
           isRegistered: true,
-          role: isAdmin ? 'admin' : 'user',
+          // Admin accounts use the password-based admin auth module only.
+          role: 'user',
         }
       : {
           login: cleanLogin,
           isRegistered: false,
-          role: isAdmin ? 'admin' : 'user',
+          role: 'user',
         };
 
     const token = TokenService.generateToken(tokenPayload);
@@ -69,7 +66,7 @@ export class VerifyOtpUseCase {
       message: 'OTP verified successfully.',
       token,
       isRegistered: !!user,
-      isAdmin,
+      isAdmin: false,
       user: user || null,
     };
   }

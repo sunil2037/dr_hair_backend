@@ -1,4 +1,5 @@
-import { BadRequestError } from '../../../shared/errors/index.js';
+import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index.js';
+import { config } from '../../../config/env.js';
 
 export class SubmitHairTestUseCase {
   constructor({ hairTestRepository, imageStorage }) {
@@ -29,14 +30,49 @@ export class SubmitHairTestUseCase {
     const photoKeys = ['photo_front', 'photo_top', 'photo_left', 'photo_right', 'photo_back'];
 
     for (const key of photoKeys) {
-      if (files[key] && files[key][0]) {
+      const uploadedFiles = files[key] || [];
+      const suppliedUrl = formData[`${key}_url`];
+      if (uploadedFiles.length > 0 && suppliedUrl) {
+        throw new BadRequestError(`Send either ${key} or ${key}_url, not both.`);
+      }
+
+      if (uploadedFiles[0]) {
         const uploaded = await this.imageStorage.uploadImage(
-          files[key][0].buffer,
+          uploadedFiles[0].buffer,
           'scalp',
         );
         scalpPhotos.push({
           file_name: uploaded.publicId,
           url: uploaded.secureUrl,
+          angle: key.replace('photo_', ''),
+        });
+      } else if (suppliedUrl) {
+        const url = String(suppliedUrl).trim();
+        let parsedUrl;
+        try {
+          parsedUrl = new URL(url);
+        } catch {
+          throw new BadRequestError(`${key}_url must be a valid uploaded image URL.`);
+        }
+        const uploadMarker = `/${config.cloudinary.cloudName}/image/upload/`;
+        if (
+          parsedUrl.protocol !== 'https:'
+          || parsedUrl.hostname !== 'res.cloudinary.com'
+          || !config.cloudinary.cloudName
+          || !parsedUrl.pathname.includes(uploadMarker)
+        ) {
+          throw new BadRequestError(`${key}_url must be an image uploaded to the configured Cloudinary account.`);
+        }
+        const pathParts = (parsedUrl.pathname.split(uploadMarker)[1] || '').split('/').filter(Boolean);
+        if (/^v\d+$/.test(pathParts[0] || '')) pathParts.shift();
+        const publicId = pathParts.join('/').replace(/\.[a-zA-Z0-9]+$/, '');
+        const ownedFolder = `${config.cloudinary.imageFolder}/user-${userId}/assessment/`;
+        if (!publicId.startsWith(ownedFolder)) {
+          throw new UnauthorizedError(`${key}_url must belong to the authenticated patient's assessment uploads.`);
+        }
+        scalpPhotos.push({
+          file_name: publicId,
+          url,
           angle: key.replace('photo_', ''),
         });
       }

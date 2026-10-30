@@ -5,7 +5,7 @@ info:
   description: >-
     Express API for the Flutter app and admin panel. MongoDB Atlas is used when
     MONGODB_URI is configured; local development can fall back to in-memory repositories.
-    Admin routes require a JWT issued to an address in ADMIN_EMAILS.
+    Admin routes require a password-authenticated JWT with either the admin or super_admin role.
 servers:
   - url: /
     description: Current backend origin
@@ -19,6 +19,7 @@ tags:
   - name: Notifications
   - name: Videos
   - name: Admin
+  - name: Media
 paths:
   /health:
     get:
@@ -92,10 +93,66 @@ paths:
                     properties:
                       token: { type: string }
                       is_registered: { type: boolean }
+                      is_admin: { type: boolean }
+                      data: { $ref: '#/components/schemas/UserProfile' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/auth/session:
+    get:
+      tags: [Authentication]
+      summary: Validate a bearer token and return onboarding status
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Valid session and registration status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          login: { type: [string, 'null'] }
+                          name: { type: [string, 'null'] }
+                          is_registered: { type: boolean }
+                          is_admin: { type: boolean }
+                          user: { $ref: '#/components/schemas/UserProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/admin-auth/login:
+    post:
+      tags: [Admin]
+      summary: Sign in to the admin panel with an email or admin ID and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminLoginRequest' }
+      responses:
+        '200':
+          description: Admin session created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          token: { type: string }
+                          admin: { $ref: '#/components/schemas/AdminIdentity' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
 
   /api/v1/users/checkUser:
     post:
@@ -146,7 +203,12 @@ paths:
   /api/v1/users/updateProfile:
     post:
       tags: [Users]
-      summary: Update profile text fields
+      summary: Update patient profile fields
+      description: >-
+        Age, gender, city, occupation, and an uploaded profile_url can be updated.
+        profile_url must be a Cloudinary image uploaded with X-Media-Purpose: profile.
+        Set it to null to remove the photo. A changed email or phone must first be verified;
+        contact fields are not changed by ordinary profile editing.
       x-legacy-path: /Admin/updateProfile
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -166,6 +228,8 @@ paths:
     post:
       tags: [Users]
       summary: Upload the authenticated user's profile picture
+      deprecated: true
+      description: Legacy upload route. New clients should use POST /api/v1/media/upload, then save the returned URL with POST /api/v1/users/updateProfile.
       x-legacy-path: /Admin/profileUpdate
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -175,20 +239,94 @@ paths:
             schema:
               type: object
               properties:
-                action: { type: string, example: upload }
+                action: { type: string, enum: [upload, remove], example: upload }
                 profile: { type: string, format: binary, description: JPEG, PNG, or WebP image }
-              required: [profile]
+              description: Set action to remove without a profile file to clear the patient's profile photo.
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/ServerError' }
 
+  /api/v1/media/upload:
+    post:
+      tags: [Media]
+      summary: Upload one image or video to Cloudinary
+      description: Streams 1 to 5 mixed image/video files directly to Cloudinary, avoiding full-file buffering in the API. Registered users can upload their own media and admins can upload admin media. Response includes one URL and asset_id per file; save those URLs separately through the resource-specific API. Each image is limited to 10 MiB and each video to MAX_MEDIA_FILE_SIZE_MB (default 100 MiB).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: header
+          name: X-Media-Purpose
+          required: false
+          schema: { type: string, enum: [general, profile, assessment, progress, content], default: general }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary, description: One JPEG, PNG, WebP, GIF, AVIF, MP4, MOV, M4V, or WebM file }
+                files:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  items: { type: string, format: binary, description: JPEG, PNG, WebP, GIF, AVIF, MP4, MOV, M4V, or WebM }
+              anyOf:
+                - required: [file]
+                - required: [files]
+      responses:
+        '201':
+          description: Uploaded media asset URL and metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            minItems: 1
+                            maxItems: 5
+                            items:
+                              type: object
+                              required: [asset_id, url, resource_type, bytes]
+                              properties:
+                                asset_id: { type: string }
+                                public_id: { type: string }
+                                url: { type: string, format: uri }
+                                resource_type: { type: string, enum: [image, video] }
+                                format: { type: [string, 'null'] }
+                                mime_type: { type: string }
+                                bytes: { type: number }
+                                width: { type: [number, 'null'] }
+                                height: { type: [number, 'null'] }
+                                duration: { type: [number, 'null'] }
+                          asset_id: { type: string }
+                          public_id: { type: string }
+                          url: { type: string, format: uri }
+                          resource_type: { type: string, enum: [image, video] }
+                          format: { type: [string, 'null'] }
+                          mime_type: { type: string }
+                          bytes: { type: number }
+                          width: { type: [number, 'null'] }
+                          height: { type: [number, 'null'] }
+                          duration: { type: [number, 'null'] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '413': { description: File is larger than the configured upload limit }
+        '500': { $ref: '#/components/responses/ServerError' }
+
   /api/v1/hair-tests/submit_form:
     post:
       tags: [Hair tests]
       summary: Submit a hair and scalp assessment
-      description: Questionnaire array fields may be JSON-encoded strings in multipart form data. Five optional scalp photo fields are supported by the current route.
+      description: Questionnaire array fields may be JSON-encoded strings in multipart form data. For each of five scalp photo angles, send either its legacy binary field or a photo_*_url returned by POST /api/v1/media/upload with X-Media-Purpose assessment; URLs are checked against the authenticated patient before the assessment is saved.
       x-legacy-path: /HairTest/submit_form
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -200,11 +338,16 @@ paths:
                 - $ref: '#/components/schemas/HairTestFields'
                 - type: object
                   properties:
-                    photo_front: { type: string, format: binary }
-                    photo_top: { type: string, format: binary }
-                    photo_left: { type: string, format: binary }
-                    photo_right: { type: string, format: binary }
-                    photo_back: { type: string, format: binary }
+                    photo_front: { type: string, format: binary, deprecated: true }
+                    photo_top: { type: string, format: binary, deprecated: true }
+                    photo_left: { type: string, format: binary, deprecated: true }
+                    photo_right: { type: string, format: binary, deprecated: true }
+                    photo_back: { type: string, format: binary, deprecated: true }
+                    photo_front_url: { type: string, format: uri, description: URL returned by the shared media upload endpoint with X-Media-Purpose assessment }
+                    photo_top_url: { type: string, format: uri }
+                    photo_left_url: { type: string, format: uri }
+                    photo_right_url: { type: string, format: uri }
+                    photo_back_url: { type: string, format: uri }
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -326,7 +469,7 @@ paths:
   /api/v1/admin/users:
     get:
       tags: [Admin]
-      summary: Search users
+      summary: Search registered patient profiles
       security: [{ bearerAuth: [] }]
       parameters:
         - name: page
@@ -340,6 +483,56 @@ paths:
           schema: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/accounts:
+    get:
+      tags: [Admin]
+      summary: List admin accounts (Super Admin only)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Create an admin login and return its generated password once (Super Admin only)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAdminAccountRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/v1/admin/me:
+    get:
+      tags: [Admin]
+      summary: Validate the current admin session and return its identity
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current password-authenticated admin identity
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id: { type: [string, 'null'] }
+                          email: { type: [string, 'null'] }
+                          name: { type: [string, 'null'] }
+                          role: { type: string, enum: [admin, super_admin] }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -465,6 +658,7 @@ paths:
     post:
       tags: [Admin]
       summary: Save an uploaded Cloudinary video as a draft
+      description: Accepts the asset_id/public_id or URL returned by POST /api/v1/media/upload, verifies the video with Cloudinary, then stores its URL as a draft.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -553,6 +747,26 @@ components:
           properties:
             otp: { type: string, pattern: '^\d{6}$' }
           required: [otp]
+    AdminLoginRequest:
+      type: object
+      properties:
+        email: { type: string, minLength: 3, maxLength: 254, description: Work email or Super Admin login ID }
+        password: { type: string, minLength: 1, maxLength: 256 }
+      required: [email, password]
+    AdminIdentity:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [admin, super_admin] }
+      required: [id, email, role]
+    CreateAdminAccountRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        email: { type: string, format: email, maxLength: 254 }
+      required: [name, email]
     RegisterUserRequest:
       type: object
       properties:
@@ -584,6 +798,23 @@ components:
         name: { type: string }
         email: { type: string, format: email }
         contact: { type: string }
+        age: { oneOf: [{ type: integer, minimum: 1, maximum: 120 }, { type: 'null' }] }
+        gender: { type: [string, 'null'] }
+        city: { type: [string, 'null'] }
+        occupation: { type: [string, 'null'] }
+        profile_url: { type: [string, 'null'], format: uri }
+    UserProfile:
+      type: object
+      properties:
+        id: { oneOf: [{ type: integer }, { type: string }] }
+        name: { type: string }
+        email: { type: [string, 'null'], format: email }
+        phone: { type: [string, 'null'] }
+        age: { type: [integer, 'null'] }
+        gender: { type: [string, 'null'] }
+        city: { type: [string, 'null'] }
+        occupation: { type: [string, 'null'] }
+        profile_url: { type: [string, 'null'], format: uri }
     HairTestFields:
       type: object
       properties:
@@ -674,9 +905,15 @@ components:
       type: object
       properties:
         public_id: { type: string }
+        asset_id: { type: string }
+        url: { type: string, format: uri }
         title: { type: string, maxLength: 160 }
         description: { type: string, maxLength: 2000 }
-      required: [public_id, title]
+      required: [title]
+      anyOf:
+        - required: [public_id]
+        - required: [asset_id]
+        - required: [url]
     YouTubeVideoRequest:
       type: object
       properties:
@@ -712,12 +949,17 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Forbidden:
-      description: The authenticated user is not in the admin allowlist
+      description: The authenticated account does not have the required admin role
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     NotFound:
       description: Requested resource was not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: An account already exists with the submitted email
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

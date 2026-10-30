@@ -7,6 +7,7 @@ import { TreatmentRepository } from './modules/treatment/infrastructure/Treatmen
 import { ReviewRepository } from './modules/review/infrastructure/ReviewRepository.js';
 import { DeviceTokenRepository } from './modules/notifications/infrastructure/DeviceTokenRepository.js';
 import { VideoRepository } from './modules/media/infrastructure/VideoRepository.js';
+import { AdminAccountRepository } from './modules/admin/infrastructure/AdminAccountRepository.js';
 import { CloudinaryImageStorage } from './modules/media/infrastructure/CloudinaryImageStorage.js';
 
 // Use Cases
@@ -22,6 +23,8 @@ import { GetHairTestsUseCase } from './modules/hair_test/application/GetHairTest
 import { GetTreatmentHistoryUseCase } from './modules/treatment/application/GetTreatmentHistoryUseCase.js';
 import { GetReviewsUseCase } from './modules/review/application/GetReviewsUseCase.js';
 import { CreateReviewUseCase } from './modules/review/application/CreateReviewUseCase.js';
+import { AdminAuthUseCase } from './modules/admin/application/AdminAuthUseCase.js';
+import { CreateAdminAccountUseCase } from './modules/admin/application/CreateAdminAccountUseCase.js';
 
 // Controllers
 import { AuthController } from './modules/auth/presentation/auth.controller.js';
@@ -32,6 +35,7 @@ import { ReviewController } from './modules/review/presentation/review.controlle
 import { NotificationController } from './modules/notifications/presentation/notification.controller.js';
 import { VideoController } from './modules/media/presentation/video.controller.js';
 import { AdminController } from './modules/admin/presentation/admin.controller.js';
+import { AdminAuthController } from './modules/admin/presentation/admin-auth.controller.js';
 
 // Routers
 import { createAuthRouter } from './modules/auth/presentation/auth.routes.js';
@@ -41,7 +45,10 @@ import { createTreatmentRouter } from './modules/treatment/presentation/treatmen
 import { createReviewRouter } from './modules/review/presentation/review.routes.js';
 import { createNotificationRouter } from './modules/notifications/presentation/notification.routes.js';
 import { createVideoRouter } from './modules/media/presentation/video.routes.js';
+import { MediaController } from './modules/media/presentation/media.controller.js';
+import { createMediaRouter } from './modules/media/presentation/media.routes.js';
 import { createAdminRouter } from './modules/admin/presentation/admin.routes.js';
+import { createAdminAuthRouter } from './modules/admin/presentation/admin-auth.routes.js';
 
 /**
  * Dependency Injection Container
@@ -57,6 +64,7 @@ export const createContainer = () => {
   const reviewRepository = new ReviewRepository();
   const deviceTokenRepository = new DeviceTokenRepository();
   const videoRepository = new VideoRepository();
+  const adminAccountRepository = new AdminAccountRepository();
   const imageStorage = new CloudinaryImageStorage();
 
   // 2. Application Layer (Use Cases)
@@ -113,10 +121,14 @@ export const createContainer = () => {
     reviewRepository,
   });
 
+  const adminAuthUseCase = new AdminAuthUseCase({ adminAccountRepository });
+  const createAdminAccountUseCase = new CreateAdminAccountUseCase({ adminAccountRepository });
+
   // 3. Presentation Layer (Controllers)
   const authController = new AuthController({
     sendOtpUseCase,
     verifyOtpUseCase,
+    userRepository,
   });
 
   const userController = new UserController({
@@ -142,11 +154,15 @@ export const createContainer = () => {
   });
   const notificationController = new NotificationController({ deviceTokenRepository });
   const videoController = new VideoController({ videoRepository });
+  const adminAuthController = new AdminAuthController({ adminAuthUseCase });
+  const mediaController = new MediaController();
   const adminController = new AdminController({
     userRepository,
     hairTestRepository,
     treatmentRepository,
     reviewRepository,
+    adminAccountRepository,
+    createAdminAccountUseCase,
   });
 
   // 4. Routes
@@ -157,11 +173,13 @@ export const createContainer = () => {
   const reviewRouter = createReviewRouter({ reviewController });
   const notificationRouter = createNotificationRouter({ notificationController });
   const videoRouters = createVideoRouter({ videoController });
+  const mediaRouter = createMediaRouter({ mediaController });
   const adminRouter = createAdminRouter({
     adminController,
     notificationController,
     videoController,
   });
+  const adminAuthRouter = createAdminAuthRouter({ adminAuthController });
 
   return {
     repositories: {
@@ -172,6 +190,7 @@ export const createContainer = () => {
       reviewRepository,
       deviceTokenRepository,
       videoRepository,
+      adminAccountRepository,
     },
     services: {
       smsService,
@@ -190,6 +209,8 @@ export const createContainer = () => {
       getTreatmentHistoryUseCase,
       getReviewsUseCase,
       createReviewUseCase,
+      adminAuthUseCase,
+      createAdminAccountUseCase,
     },
     controllers: {
       authController,
@@ -199,7 +220,9 @@ export const createContainer = () => {
       reviewController,
       notificationController,
       videoController,
+      mediaController,
       adminController,
+      adminAuthController,
     },
     routers: {
       authRouter,
@@ -210,7 +233,9 @@ export const createContainer = () => {
       notificationRouter,
       videoPublicRouter: videoRouters.publicRouter,
       videoAdminRouter: videoRouters.adminRouter,
+      mediaRouter,
       adminRouter,
+      adminAuthRouter,
     },
   };
 };

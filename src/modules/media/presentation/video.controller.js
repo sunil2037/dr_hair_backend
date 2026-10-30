@@ -4,6 +4,7 @@ import {
   createVideoUploadSignature,
   verifyUploadedVideo,
 } from '../infrastructure/CloudinaryVideoStorage.js';
+import { config } from '../../../config/env.js';
 
 export class VideoController {
   constructor({ videoRepository }) {
@@ -28,14 +29,18 @@ export class VideoController {
 
   saveUploadedVideo = async (req, res, next) => {
     try {
-      const { public_id, title, description = '' } = req.body || {};
+      const { public_id, asset_id, url, title, description = '' } = req.body || {};
+      const uploadedPublicId = public_id || asset_id || (url ? this.getCloudinaryVideoId(url) : null);
+      if (typeof uploadedPublicId !== 'string' || !uploadedPublicId.trim()) {
+        throw new BadRequestError('Send the public_id, asset_id, or URL returned by the media upload API.');
+      }
       if (typeof title !== 'string' || !title.trim() || title.trim().length > 160) {
         throw new BadRequestError('Video title is required and must be at most 160 characters.');
       }
       if (typeof description !== 'string' || description.length > 2000) {
         throw new BadRequestError('Video description must be a string of at most 2000 characters.');
       }
-      const asset = await verifyUploadedVideo(public_id);
+      const asset = await verifyUploadedVideo(uploadedPublicId.trim());
       const saved = await this.videoRepository.create({
         ...asset,
         provider: 'cloudinary',
@@ -52,6 +57,27 @@ export class VideoController {
     } catch (error) {
       next(error);
     }
+  };
+
+  getCloudinaryVideoId = (input) => {
+    if (typeof input !== 'string' || input.length > 2000) {
+      throw new BadRequestError('A valid Cloudinary video URL is required.');
+    }
+    let url;
+    try {
+      url = new URL(input);
+    } catch {
+      throw new BadRequestError('A valid Cloudinary video URL is required.');
+    }
+    const marker = `/${config.cloudinary.cloudName}/video/upload/`;
+    if (url.protocol !== 'https:' || url.hostname !== 'res.cloudinary.com' || !config.cloudinary.cloudName || !url.pathname.includes(marker)) {
+      throw new BadRequestError('The URL must be a video uploaded to this Cloudinary account.');
+    }
+    const path = (url.pathname.split(marker)[1] || '').split('/').filter(Boolean);
+    if (/^v\d+$/.test(path[0] || '')) path.shift();
+    const publicId = path.join('/').replace(/\.[a-zA-Z0-9]+$/, '');
+    if (!publicId || publicId.includes('..')) throw new BadRequestError('The Cloudinary video URL is invalid.');
+    return publicId;
   };
 
   addYouTubeVideo = async (req, res, next) => {

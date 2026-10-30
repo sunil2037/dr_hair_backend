@@ -15,6 +15,12 @@ export class BadRequestError extends AppError {
   }
 }
 
+export class PayloadTooLargeError extends AppError {
+  constructor(message = 'Payload is too large', details = null) {
+    super(message, 413, details);
+  }
+}
+
 export class UnauthorizedError extends AppError {
   constructor(message = 'Unauthorized access', details = null) {
     super(message, 401, details);
@@ -24,6 +30,12 @@ export class UnauthorizedError extends AppError {
 export class ForbiddenError extends AppError {
   constructor(message = 'Forbidden access', details = null) {
     super(message, 403, details);
+  }
+}
+
+export class ConflictError extends AppError {
+  constructor(message = 'Resource already exists', details = null) {
+    super(message, 409, details);
   }
 }
 
