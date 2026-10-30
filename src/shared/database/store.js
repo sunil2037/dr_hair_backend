@@ -1,0 +1,133 @@
+/**
+ * Central In-Memory / Persistent Data Store
+ * Initialized with Seed Data aligned with Dr. Hair API Documentation
+ */
+
+export const store = {
+  users: [
+    {
+      id: 12,
+      name: 'Sunil Sharma',
+      email: 'user@example.com',
+      phone: '9876543210',
+      age: 28,
+      gender: 'Male',
+      city: 'Mumbai',
+      occupation: 'Software Engineer',
+      platform: 'app',
+      profile_url: 'uploads/profiles/12_avatar.jpg',
+      created_at: '2026-01-10T10:00:00.000Z',
+    },
+  ],
+
+  otps: new Map(), // key: login (phone/email), value: { otp, expiresAt, type }
+
+  hairTests: [
+    {
+      id: 101,
+      userId: 12,
+      reference_no: 'HT-2026-0042',
+      created_at: '2026-03-15 14:20:00',
+      full_name: 'Sunil Sharma',
+      email: 'user@example.com',
+      phone: '9876543210',
+      age: 28,
+      gender: 'Male',
+      city: 'Mumbai',
+      occupation: 'Software Engineer',
+      hair_fall_start: '6 months ago',
+      hair_fall_pattern: 'Crown thinning & receding hairline',
+      daily_hair_fall: '50-100 hairs',
+      hair_fall_increasing: 'Yes',
+      dandruff: 'Mild',
+      scalp_condition: 'Oily',
+      scalp_symptoms: ['Itching', 'Excess oil'],
+      hair_type: 'Wavy',
+      medical_conditions: ['None'],
+      recent_events: ['High Work Stress'],
+      stress_level: 'High',
+      sleep_quality: 'Fair (6 hours)',
+      diet_type: 'Non-veg',
+      protein_intake: 'Moderate',
+      family_history: 'Maternal grandfather',
+      have_taken_treatment: 'No',
+      previous_treatments: [],
+      treatment_results: 'N/A',
+      main_concern: 'Regrowing crown hair',
+      looking_for: 'Medical diagnosis & hair regrowth plan',
+      hair_loss_stage: 'Stage-2',
+      scalp_photos: [
+        { file_name: 'front_101.jpg', url: 'uploads/scalp/front_101.jpg' },
+        { file_name: 'top_101.jpg', url: 'uploads/scalp/top_101.jpg' },
+      ],
+    },
+  ],
+
+  treatments: [
+    {
+      id: 5,
+      test_id: 101,
+      reference_no: 'HT-2026-0042',
+      userId: 12,
+      treatment_name: 'PRP + Minoxidil 5%',
+      duration: '3 Months',
+      instructions: 'Apply 1ml daily at night before sleep. Gentle scalp massage for 2 minutes.',
+      doctor_name: 'Dr. Hair Specialist',
+      date: '2026-03-18',
+    },
+    {
+      id: 6,
+      test_id: 101,
+      reference_no: 'HT-2026-0042',
+      userId: 12,
+      treatment_name: 'Nutritional Support - Biotin & Zinc Peptide',
+      duration: '6 Months',
+      instructions: '1 capsule daily after breakfast with water.',
+      doctor_name: 'Dr. Hair Specialist',
+      date: '2026-03-18',
+    },
+  ],
+
+  reviews: [
+    {
+      id: 1,
+      name: 'Yashveer Soni',
+      rating: 5,
+      category: 'Hair Fall Recovery',
+      message: 'Visible improvements within 2 months! Scalp density increased noticeably.',
+      avatar: 'https://images.unsplash.com/photo-1775138386053-5766c8c10e85',
+      is_verified: true,
+      review_type: 'doctor',
+      status: 'active',
+      page: 'home',
+      created_at: '2026-02-14T09:30:00.000Z',
+    },
+    {
+      id: 2,
+      name: 'Priya Mehta',
+      rating: 5,
+      category: 'Scalp Treatment',
+      message: 'Dr. Hair customized kit stopped my post-pregnancy hair thinning completely.',
+      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2',
+      is_verified: true,
+      review_type: 'doctor',
+      status: 'active',
+      page: 'home',
+      created_at: '2026-03-01T11:15:00.000Z',
+    },
+    {
+      id: 3,
+      name: 'Rahul Verma',
+      rating: 4.8,
+      category: 'PRP & Medical Plan',
+      message: 'Very scientific diagnosis and regular doctor followups. Highly recommended!',
+      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d',
+      is_verified: true,
+      review_type: 'doctor',
+      status: 'active',
+      page: 'home',
+      created_at: '2026-03-20T16:45:00.000Z',
+    },
+  ],
+};
+
