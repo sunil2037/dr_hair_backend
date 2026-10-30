@@ -29,7 +29,7 @@ export class VideoController {
 
   saveUploadedVideo = async (req, res, next) => {
     try {
-      const { public_id, asset_id, url, title, description = '' } = req.body || {};
+      const { public_id, asset_id, url, title, description = '', category = 'Hair Care', placement = 'reels' } = req.body || {};
       const uploadedPublicId = public_id || asset_id || (url ? this.getCloudinaryVideoId(url) : null);
       if (typeof uploadedPublicId !== 'string' || !uploadedPublicId.trim()) {
         throw new BadRequestError('Send the public_id, asset_id, or URL returned by the media upload API.');
@@ -40,12 +40,16 @@ export class VideoController {
       if (typeof description !== 'string' || description.length > 2000) {
         throw new BadRequestError('Video description must be a string of at most 2000 characters.');
       }
+      if (typeof category !== 'string' || !category.trim() || category.trim().length > 80) throw new BadRequestError('Video category is required and must be at most 80 characters.');
+      if (!['home', 'reels', 'both'].includes(placement)) throw new BadRequestError('placement must be home, reels, or both.');
       const asset = await verifyUploadedVideo(uploadedPublicId.trim());
       const saved = await this.videoRepository.create({
         ...asset,
         provider: 'cloudinary',
         title: title.trim(),
+        category: category.trim(),
         description: description.trim(),
+        placement,
         status: 'draft',
         created_by: Number(req.user?.id) || null,
       });
@@ -82,20 +86,24 @@ export class VideoController {
 
   addYouTubeVideo = async (req, res, next) => {
     try {
-      const { url, title, description = '' } = req.body || {};
+      const { url, title, description = '', category = 'Hair Care', placement = 'reels' } = req.body || {};
       if (typeof title !== 'string' || !title.trim() || title.trim().length > 160) {
         throw new BadRequestError('Video title is required and must be at most 160 characters.');
       }
       if (typeof description !== 'string' || description.length > 2000) {
         throw new BadRequestError('Video description must be a string of at most 2000 characters.');
       }
+      if (typeof category !== 'string' || !category.trim() || category.trim().length > 80) throw new BadRequestError('Video category is required and must be at most 80 characters.');
+      if (!['home', 'reels', 'both'].includes(placement)) throw new BadRequestError('placement must be home, reels, or both.');
       const videoId = this.getYouTubeVideoId(url);
       const saved = await this.videoRepository.create({
         public_id: 'youtube-' + videoId,
         provider: 'youtube',
         youtube_video_id: videoId,
         title: title.trim(),
+        category: category.trim(),
         description: description.trim(),
+        placement,
         secure_url: 'https://www.youtube-nocookie.com/embed/' + videoId,
         thumbnail_url: 'https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg',
         duration: null,
@@ -139,7 +147,11 @@ export class VideoController {
 
   listPublished = async (req, res, next) => {
     try {
-      const items = await this.videoRepository.listPublished({ limit: req.query.limit });
+      const { placement } = req.query;
+      if (placement !== undefined && !['home', 'reels'].includes(placement)) {
+        throw new BadRequestError('placement must be home or reels.');
+      }
+      const items = await this.videoRepository.listPublished({ limit: req.query.limit, placement });
       return sendSuccess(res, { data: items });
     } catch (error) {
       next(error);

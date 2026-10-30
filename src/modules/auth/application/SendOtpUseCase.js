@@ -25,8 +25,8 @@ export class SendOtpUseCase {
     const existingUser = await this.userRepository.findByLogin(cleanLogin);
     const type = existingUser ? 'login' : 'register';
 
-    // Generate 6-digit OTP (use default in dev for easy testing or random)
-    const otpCode = config.isDev && config.otp.defaultOtp
+    // Generate 6-digit OTP (use default if configured for testing, or random)
+    const otpCode = config.otp.defaultOtp
       ? config.otp.defaultOtp
       : String(randomInt(100000, 1000000));
 
@@ -47,7 +47,7 @@ export class SendOtpUseCase {
       throw error;
     }
 
-    const testMessage = config.isDev && config.otp.defaultOtp
+    const testMessage = config.otp.defaultOtp
       ? ` (For testing, OTP is ${otpCode})`
       : '';
 

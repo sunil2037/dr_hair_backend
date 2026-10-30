@@ -463,6 +463,10 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: placement
+          in: query
+          description: Optional app placement filter. Videos placed in both Home and Reels are included in either filtered response.
+          schema: { type: string, enum: [home, reels] }
       responses:
         '200': { $ref: '#/components/responses/Success' }
 
@@ -485,6 +489,80 @@ paths:
         '200': { $ref: '#/components/responses/Success' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [Admin]
+      summary: Read a patient profile, hair assessments, treatments, and private report metadata
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Admin]
+      summary: Update patient app profile fields (Super Admin only)
+      description: Name, age, gender, city, and occupation may be edited. Verified email and phone cannot be changed through the admin form.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminPatientProfileUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/users/{userId}/reports:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    post:
+      tags: [Admin]
+      summary: Upload a private patient report to authenticated Cloudinary storage
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/AdminClinicalReportUpload' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/users/{userId}/reports/{reportId}/download:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+      - name: reportId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Admin]
+      summary: Create a 60-second signed download link after checking patient ownership
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/admin/accounts:
     get:
@@ -658,7 +736,7 @@ paths:
     post:
       tags: [Admin]
       summary: Save an uploaded Cloudinary video as a draft
-      description: Accepts the asset_id/public_id or URL returned by POST /api/v1/media/upload, verifies the video with Cloudinary, then stores its URL as a draft.
+      description: Accepts a Cloudinary video public_id, asset_id, or URL, verifies the video with Cloudinary, then stores its URL, category, description, and Home/Reels placement as a draft.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -883,6 +961,22 @@ components:
         doctor_name: { type: string }
         date: { type: string, format: date }
       required: [reference_no, treatment_name]
+    AdminPatientProfileUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        age: { type: [integer, 'null'], minimum: 1, maximum: 120 }
+        gender: { type: [string, 'null'], maxLength: 120 }
+        city: { type: [string, 'null'], maxLength: 120 }
+        occupation: { type: [string, 'null'], maxLength: 120 }
+      minProperties: 1
+    AdminClinicalReportUpload:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        file: { type: string, format: binary, description: PDF, JPG, PNG, or WebP; maximum 10 MB }
+      required: [title, file]
     AdminReviewStatusRequest:
       type: object
       properties:
@@ -909,6 +1003,8 @@ components:
         url: { type: string, format: uri }
         title: { type: string, maxLength: 160 }
         description: { type: string, maxLength: 2000 }
+        category: { type: string, maxLength: 80, default: Hair Care }
+        placement: { type: string, enum: [home, reels, both], default: reels }
       required: [title]
       anyOf:
         - required: [public_id]
@@ -920,6 +1016,8 @@ components:
         url: { type: string, format: uri }
         title: { type: string, maxLength: 160 }
         description: { type: string, maxLength: 2000 }
+        category: { type: string, maxLength: 80, default: Hair Care }
+        placement: { type: string, enum: [home, reels, both], default: reels }
       required: [url, title]
     VideoStatusRequest:
       type: object

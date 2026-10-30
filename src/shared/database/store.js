@@ -89,6 +89,8 @@ export const store = {
     },
   ],
 
+  clinicalReports: [],
+
   reviews: [
     {
       id: 1,

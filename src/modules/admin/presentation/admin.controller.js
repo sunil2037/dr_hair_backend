@@ -1,11 +1,25 @@
 import { BadRequestError, NotFoundError } from '../../../shared/errors/index.js';
 import { sendSuccess } from '../../../shared/utils/response.js';
+import { uploadClinicalReport, createClinicalReportDownloadUrl, deleteClinicalReport } from '../infrastructure/ClinicalReportStorage.js';
+
+const reportResponse = (report) => ({
+  id: report.id,
+  userId: report.userId,
+  title: report.title,
+  file_name: report.file_name,
+  mime_type: report.mime_type,
+  format: report.format,
+  bytes: report.bytes,
+  uploaded_by: report.uploaded_by,
+  created_at: report.created_at,
+});
 
 export class AdminController {
-  constructor({ userRepository, hairTestRepository, treatmentRepository, reviewRepository, adminAccountRepository, createAdminAccountUseCase }) {
+  constructor({ userRepository, hairTestRepository, treatmentRepository, clinicalReportRepository, reviewRepository, adminAccountRepository, createAdminAccountUseCase }) {
     this.userRepository = userRepository;
     this.hairTestRepository = hairTestRepository;
     this.treatmentRepository = treatmentRepository;
+    this.clinicalReportRepository = clinicalReportRepository;
     this.reviewRepository = reviewRepository;
     this.adminAccountRepository = adminAccountRepository;
     this.createAdminAccountUseCase = createAdminAccountUseCase;
@@ -76,6 +90,112 @@ export class AdminController {
     }
   };
 
+  getPatient = async (req, res, next) => {
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      const assessments = await this.hairTestRepository.findByUserId(patient.id);
+      const treatmentsByAssessment = await Promise.all(assessments.map((assessment) =>
+        this.treatmentRepository.findByTestIdentifier(assessment.reference_no, { userId: patient.id }),
+      ));
+      const reports = await this.clinicalReportRepository.listByUserId(patient.id);
+      return sendSuccess(res, {
+        data: {
+          patient: { ...patient.toPublicProfile(), created_at: patient.created_at },
+          assessments,
+          treatments: treatmentsByAssessment.flat().map((treatment) => ({ ...treatment.toResponse(), reference_no: treatment.reference_no })),
+          reports: reports.map(reportResponse),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updatePatient = async (req, res, next) => {
+    try {
+      const patientId = req.params.userId;
+      const current = await this.userRepository.findById(patientId);
+      if (!current || current.role !== 'user') throw new NotFoundError('Patient not found.');
+      const allowedFields = ['name', 'age', 'gender', 'city', 'occupation'];
+      const body = req.body || {};
+      const unknownFields = Object.keys(body).filter((field) => !allowedFields.includes(field));
+      if (unknownFields.length) throw new BadRequestError('Only name, age, gender, city, and occupation can be changed here. Contact details require patient verification.');
+      if (!Object.keys(body).length) throw new BadRequestError('Provide at least one profile field to update.');
+      const update = {};
+      for (const field of allowedFields) {
+        if (!(field in body)) continue;
+        const value = body[field];
+        if (field === 'age') {
+          if (value !== null && (!Number.isInteger(value) || value < 1 || value > 120)) throw new BadRequestError('age must be a whole number between 1 and 120, or null.');
+          update.age = value;
+          continue;
+        }
+        if (value !== null && (typeof value !== 'string' || value.trim().length > 120)) throw new BadRequestError(`${field} must be a text value of at most 120 characters, or null.`);
+        const normalized = typeof value === 'string' ? value.trim() : null;
+        if (field === 'name' && !normalized) throw new BadRequestError('name cannot be empty.');
+        update[field] = normalized || (field === 'name' ? '' : null);
+      }
+      const updated = await this.userRepository.update(patientId, update);
+      return sendSuccess(res, { message: 'Patient profile updated.', data: updated.toPublicProfile() });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  uploadPatientReport = async (req, res, next) => {
+    let uploadedAsset;
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      if (!req.file) throw new BadRequestError('Choose a report file to upload.');
+      const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+      if (!title || title.length > 160) throw new BadRequestError('Report title is required and must be at most 160 characters.');
+      const signatures = {
+        'application/pdf': req.file.buffer.subarray(0, 5).toString() === '%PDF-',
+        'image/jpeg': req.file.buffer[0] === 0xff && req.file.buffer[1] === 0xd8 && req.file.buffer[2] === 0xff,
+        'image/png': req.file.buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+        'image/webp': req.file.buffer.subarray(0, 4).toString() === 'RIFF' && req.file.buffer.subarray(8, 12).toString() === 'WEBP',
+      };
+      if (!signatures[req.file.mimetype]) throw new BadRequestError('The report file content does not match its PDF or image type.');
+      uploadedAsset = await uploadClinicalReport(req.file, patient.id);
+      const report = await this.clinicalReportRepository.create({
+        id: uploadedAsset.id,
+        userId: patient.id,
+        title,
+        file_name: String(req.file.originalname || 'report').replace(/[\\/\u0000-\u001f]/g, '_').slice(0, 180),
+        mime_type: req.file.mimetype,
+        format: ({ 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[req.file.mimetype],
+        bytes: req.file.size,
+        public_id: uploadedAsset.public_id,
+        uploaded_by: String(req.user?.email || req.user?.login || 'Super Admin'),
+      });
+      return sendSuccess(res, { message: 'Private patient report uploaded.', data: reportResponse(report), statusCode: 201 });
+    } catch (error) {
+      if (uploadedAsset?.public_id) {
+        try { await deleteClinicalReport(uploadedAsset.public_id); } catch { /* best-effort cleanup after metadata failure */ }
+      }
+      next(error);
+    }
+  };
+
+  downloadPatientReport = async (req, res, next) => {
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      const report = await this.clinicalReportRepository.findByUserIdAndId(patient.id, req.params.reportId);
+      if (!report) throw new NotFoundError('Patient report not found.');
+      return sendSuccess(res, {
+        data: {
+          url: createClinicalReportDownloadUrl(report.public_id, report.format),
+          expires_in_seconds: 60,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listHairTests = async (req, res, next) => {
     try {
       const result = await this.hairTestRepository.list({
@@ -134,7 +254,7 @@ export class AdminController {
       });
       return sendSuccess(res, {
         message: 'Treatment plan created.',
-        data: treatment.toResponse(),
+        data: { ...treatment.toResponse(), reference_no: treatment.reference_no },
         statusCode: 201,
       });
     } catch (error) {

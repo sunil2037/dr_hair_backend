@@ -16,13 +16,14 @@ export class VideoRepository {
     return record;
   }
 
-  async listPublished({ limit = 20 } = {}) {
+  async listPublished({ limit = 20, placement } = {}) {
     const safeLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
+    const placementFilter = placement ? { placement: { $in: [placement, 'both'] } } : {};
     if (isMongoConnected()) {
-      return VideoModel.find({ status: 'published' }).sort({ created_at: -1 }).limit(safeLimit).lean();
+      return VideoModel.find({ status: 'published', ...placementFilter }).sort({ created_at: -1 }).limit(safeLimit).lean();
     }
     return store.videos
-      .filter((record) => record.status === 'published')
+      .filter((record) => record.status === 'published' && (!placement || record.placement === placement || record.placement === 'both'))
       .sort(orderNewestFirst)
       .slice(0, safeLimit);
   }

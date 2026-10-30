@@ -8,6 +8,7 @@ import { ReviewRepository } from './modules/review/infrastructure/ReviewReposito
 import { DeviceTokenRepository } from './modules/notifications/infrastructure/DeviceTokenRepository.js';
 import { VideoRepository } from './modules/media/infrastructure/VideoRepository.js';
 import { AdminAccountRepository } from './modules/admin/infrastructure/AdminAccountRepository.js';
+import { ClinicalReportRepository } from './modules/admin/infrastructure/ClinicalReportRepository.js';
 import { CloudinaryImageStorage } from './modules/media/infrastructure/CloudinaryImageStorage.js';
 
 // Use Cases
@@ -65,6 +66,7 @@ export const createContainer = () => {
   const deviceTokenRepository = new DeviceTokenRepository();
   const videoRepository = new VideoRepository();
   const adminAccountRepository = new AdminAccountRepository();
+  const clinicalReportRepository = new ClinicalReportRepository();
   const imageStorage = new CloudinaryImageStorage();
 
   // 2. Application Layer (Use Cases)
@@ -111,6 +113,7 @@ export const createContainer = () => {
 
   const getTreatmentHistoryUseCase = new GetTreatmentHistoryUseCase({
     treatmentRepository,
+    clinicalReportRepository,
   });
 
   const getReviewsUseCase = new GetReviewsUseCase({
@@ -160,6 +163,7 @@ export const createContainer = () => {
     userRepository,
     hairTestRepository,
     treatmentRepository,
+    clinicalReportRepository,
     reviewRepository,
     adminAccountRepository,
     createAdminAccountUseCase,
@@ -187,6 +191,7 @@ export const createContainer = () => {
       userRepository,
       hairTestRepository,
       treatmentRepository,
+      clinicalReportRepository,
       reviewRepository,
       deviceTokenRepository,
       videoRepository,

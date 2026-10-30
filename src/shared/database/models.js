@@ -72,6 +72,23 @@ const treatmentSchema = new Schema(
   { collection: 'treatments', strict: false, versionKey: false },
 );
 
+const clinicalReportSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: Number, required: true, index: true },
+    title: { type: String, required: true, trim: true },
+    file_name: { type: String, required: true },
+    mime_type: { type: String, required: true },
+    format: { type: String, required: true },
+    bytes: { type: Number, required: true },
+    public_id: { type: String, required: true, unique: true },
+    uploaded_by: { type: String, default: '' },
+    created_at: { type: Date, default: Date.now },
+  },
+  { collection: 'clinical_reports', versionKey: false },
+);
+clinicalReportSchema.index({ userId: 1, created_at: -1 });
+
 const reviewSchema = new Schema(
   {
     id: { type: Number, required: true, unique: true, index: true },
@@ -106,7 +123,9 @@ const videoSchema = new Schema(
     provider: { type: String, enum: ['cloudinary', 'youtube'], default: 'cloudinary' },
     youtube_video_id: { type: String, sparse: true, unique: true },
     title: { type: String, required: true, trim: true },
+    category: { type: String, default: 'Hair Care', trim: true },
     description: { type: String, default: '' },
+    placement: { type: String, enum: ['home', 'reels', 'both'], default: 'reels', index: true },
     secure_url: { type: String, required: true },
     thumbnail_url: { type: String, default: '' },
     duration: { type: Number, default: null },
@@ -128,6 +147,7 @@ export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
 export const HairTestModel = mongoose.models.DrHairHairTest || mongoose.model('DrHairHairTest', hairTestSchema);
 export const TreatmentModel = mongoose.models.DrHairTreatment || mongoose.model('DrHairTreatment', treatmentSchema);
+export const ClinicalReportModel = mongoose.models.DrHairClinicalReport || mongoose.model('DrHairClinicalReport', clinicalReportSchema);
 export const ReviewModel = mongoose.models.DrHairReview || mongoose.model('DrHairReview', reviewSchema);
 export const DeviceTokenModel = mongoose.models.DrHairDeviceToken || mongoose.model('DrHairDeviceToken', deviceTokenSchema);
 export const VideoModel = mongoose.models.DrHairVideo || mongoose.model('DrHairVideo', videoSchema);

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticateToken } from '../../../shared/middlewares/auth.middleware.js';
 import { requireAdmin, requireSuperAdmin } from '../../../shared/middlewares/admin.middleware.js';
+import { uploadClinicalReportFile } from '../../../shared/middlewares/clinical-report-upload.middleware.js';
 
 export const createAdminRouter = ({ adminController, notificationController, videoController }) => {
   const router = Router();
@@ -10,6 +11,10 @@ export const createAdminRouter = ({ adminController, notificationController, vid
   router.get('/accounts', requireSuperAdmin, adminController.listAdminAccounts);
   router.post('/accounts', requireSuperAdmin, adminController.createAdminAccount);
   router.get('/users', adminController.listUsers);
+  router.get('/users/:userId', adminController.getPatient);
+  router.patch('/users/:userId', requireSuperAdmin, adminController.updatePatient);
+  router.post('/users/:userId/reports', requireSuperAdmin, uploadClinicalReportFile, adminController.uploadPatientReport);
+  router.get('/users/:userId/reports/:reportId/download', requireSuperAdmin, adminController.downloadPatientReport);
   router.get('/hair-tests', requireSuperAdmin, adminController.listHairTests);
   router.get('/treatments', requireSuperAdmin, adminController.listTreatments);
   router.post('/treatments', requireSuperAdmin, adminController.createTreatment);

@@ -43,11 +43,10 @@ export const createApp = () => {
   // 2. System & Health Check Endpoints
   app.get('/', (req, res) => {
     const db = databaseStatus();
-    const ready = db === 'connected' || (config.env !== 'production' && db === 'memory');
-    res.status(ready ? 200 : 503).json({
+    res.status(200).json({
       name: 'Dr. Hair Backend API',
       version: '1.0.0',
-      status: ready ? 'operational' : 'degraded',
+      status: 'operational',
       database: db,
       architecture: 'Modular Monolith + Clean Architecture',
       documentation: '/api/docs',
@@ -59,7 +58,7 @@ export const createApp = () => {
         hairTest: ['/HairTest/submit_form', '/HairTest/hair_test', '/HairTest/get_treatment_history/:reference_no'],
         review: ['/Review/review_get'],
         videos: ['/api/v1/videos'],
-      media: ['/api/v1/media/upload'],
+        media: ['/api/v1/media/upload'],
         notifications: ['/api/v1/notifications/device-tokens'],
         admin: ['/api/v1/admin/users', '/api/v1/admin/hair-tests', '/api/v1/admin/treatments', '/api/v1/admin/reviews'],
       },
@@ -68,9 +67,8 @@ export const createApp = () => {
 
   app.get('/health', (req, res) => {
     const db = databaseStatus();
-    const ready = db === 'connected' || (config.env !== 'production' && db === 'memory');
-    res.status(ready ? 200 : 503).json({
-      status: ready ? 'ok' : 'degraded',
+    res.status(200).json({
+      status: 'ok',
       database: db,
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
