@@ -20,6 +20,7 @@ tags:
   - name: Videos
   - name: Admin
   - name: Media
+  - name: Patient app
 paths:
   /health:
     get:
@@ -379,6 +380,36 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/patient/clinical-record:
+    get:
+      tags: [Patient app]
+      summary: Get the authenticated patient's assessments, care plans, and report metadata
+      description: The patient identity is taken from the bearer token. It cannot be selected by a request parameter.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/patient/reports/{reportId}/download:
+    get:
+      tags: [Patient app]
+      summary: Create a short-lived download link for the authenticated patient's report
+      description: The report is looked up using both the authenticated patient ID and report ID. The returned signed link expires after 60 seconds.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/ServerError' }
 
@@ -880,6 +911,7 @@ components:
         gender: { type: [string, 'null'] }
         city: { type: [string, 'null'] }
         occupation: { type: [string, 'null'] }
+        platform: { type: [string, 'null'] }
         profile_url: { type: [string, 'null'], format: uri }
     UserProfile:
       type: object
@@ -892,6 +924,7 @@ components:
         gender: { type: [string, 'null'] }
         city: { type: [string, 'null'] }
         occupation: { type: [string, 'null'] }
+        platform: { type: [string, 'null'] }
         profile_url: { type: [string, 'null'], format: uri }
     HairTestFields:
       type: object
@@ -905,6 +938,7 @@ components:
         city: { type: string }
         occupation: { type: string }
         hair_fall_start: { type: string }
+        duration: { type: string, description: Current Flutter assessment duration answer }
         hair_fall_pattern: { type: string }
         daily_hair_fall: { type: string }
         hair_fall_increasing: { type: string }
@@ -915,6 +949,8 @@ components:
         medical_conditions: { type: string, description: May be a JSON-encoded array }
         recent_events: { type: string, description: May be a JSON-encoded array }
         stress_level: { type: string }
+        gut_health: { type: string, description: Current Flutter digestion and gut-health answer }
+        gutHealth: { type: string, deprecated: true, description: Legacy camelCase alias }
         sleep_quality: { type: string }
         diet_type: { type: string }
         protein_intake: { type: string }
@@ -925,6 +961,8 @@ components:
         main_concern: { type: string }
         looking_for: { type: string }
         hair_loss_stage: { type: string }
+        stage: { type: string, description: Current Flutter hair-loss stage answer }
+        primary_concern: { type: string, description: Current Flutter primary concern answer }
       anyOf:
         - required: [full_name]
         - required: [name]
@@ -959,8 +997,51 @@ components:
         duration: { type: string }
         instructions: { type: string }
         doctor_name: { type: string }
+        medications:
+          type: array
+          maxItems: 25
+          items: { $ref: '#/components/schemas/PrescribedMedication' }
+        diagnosis: { type: string, maxLength: 500 }
+        stage: { type: string, maxLength: 120 }
+        next_review_date: { type: string, format: date }
+        routine_steps:
+          type: array
+          maxItems: 30
+          items: { $ref: '#/components/schemas/CareRoutineStep' }
+        diet_meals:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/DietMealSuggestion' }
         date: { type: string, format: date }
       required: [reference_no, treatment_name]
+    PrescribedMedication:
+      type: object
+      properties:
+        catalog_id: { type: string, maxLength: 240 }
+        name: { type: string, minLength: 1, maxLength: 240 }
+        category: { type: string, maxLength: 240 }
+        form: { type: string, maxLength: 240 }
+        dose: { type: string, minLength: 1, maxLength: 240 }
+        frequency: { type: string, minLength: 1, maxLength: 240 }
+        duration: { type: string, maxLength: 240 }
+        instructions: { type: string, maxLength: 1000 }
+      required: [name, dose, frequency]
+    CareRoutineStep:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 160 }
+        subtitle: { type: string, maxLength: 500 }
+        category: { type: string, maxLength: 80 }
+        time_of_day: { type: string, maxLength: 80 }
+      required: [title]
+    DietMealSuggestion:
+      type: object
+      properties:
+        type: { type: string, minLength: 1, maxLength: 60 }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        nutrients: { type: string, maxLength: 200 }
+        benefit: { type: string, maxLength: 500 }
+      required: [type, name]
     AdminPatientProfileUpdate:
       type: object
       additionalProperties: false

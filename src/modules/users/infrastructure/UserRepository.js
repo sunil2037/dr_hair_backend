@@ -135,7 +135,7 @@ export class UserRepository extends IUserRepository {
       }
       const [records, total] = await Promise.all([
         UserModel.find(filter)
-          .select('id name email phone age gender city occupation profile_url role created_at')
+          .select('id name email phone age gender city occupation platform profile_url role created_at')
           .sort({ created_at: -1, id: -1 })
           .skip((safePage - 1) * safeLimit)
           .limit(safeLimit)

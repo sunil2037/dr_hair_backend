@@ -17,6 +17,7 @@ export class HairTest {
     occupation,
     // Hair & Scalp
     hair_fall_start,
+    duration,
     hair_fall_pattern,
     daily_hair_fall,
     hair_fall_increasing,
@@ -28,6 +29,7 @@ export class HairTest {
     medical_conditions = [],
     recent_events = [],
     stress_level,
+    gut_health,
     sleep_quality,
     diet_type,
     protein_intake,
@@ -54,6 +56,7 @@ export class HairTest {
     this.city = city;
     this.occupation = occupation;
     this.hair_fall_start = hair_fall_start;
+    this.duration = duration;
     this.hair_fall_pattern = hair_fall_pattern;
     this.daily_hair_fall = daily_hair_fall;
     this.hair_fall_increasing = hair_fall_increasing;
@@ -64,6 +67,7 @@ export class HairTest {
     this.medical_conditions = medical_conditions;
     this.recent_events = recent_events;
     this.stress_level = stress_level;
+    this.gut_health = gut_health;
     this.sleep_quality = sleep_quality;
     this.diet_type = diet_type;
     this.protein_intake = protein_intake;

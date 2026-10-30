@@ -228,6 +228,12 @@ export class AdminController {
         duration = '',
         instructions = '',
         doctor_name = '',
+        medications = [],
+        diagnosis = '',
+        stage = '',
+        next_review_date = '',
+        routine_steps = [],
+        diet_meals = [],
         date,
       } = req.body || {};
       if (typeof reference_no !== 'string' || !reference_no.trim()) {
@@ -236,9 +242,52 @@ export class AdminController {
       if (typeof treatment_name !== 'string' || !treatment_name.trim()) {
         throw new BadRequestError('treatment_name is required.');
       }
-      if ([duration, instructions, doctor_name].some((value) => typeof value !== 'string')) {
-        throw new BadRequestError('duration, instructions, and doctor_name must be strings.');
+      if ([duration, instructions, doctor_name, diagnosis, stage, next_review_date].some((value) => typeof value !== 'string')) {
+        throw new BadRequestError('Treatment plan text fields must be strings.');
       }
+      if (diagnosis.length > 500 || stage.length > 120 || next_review_date.length > 10) throw new BadRequestError('Diagnosis, stage, or review date exceeds its allowed length.');
+      if (next_review_date && !/^\d{4}-\d{2}-\d{2}$/.test(next_review_date)) throw new BadRequestError('next_review_date must use YYYY-MM-DD format.');
+      if (!Array.isArray(medications) || medications.length > 25) {
+        throw new BadRequestError('medications must be a list of up to 25 selected medicines or care products.');
+      }
+      const normalizedMedications = medications.map((medicine) => {
+        if (!medicine || typeof medicine !== 'object' || Array.isArray(medicine)) {
+          throw new BadRequestError('Each prescribed medicine must be an object.');
+        }
+        const fields = ['catalog_id', 'name', 'category', 'form', 'dose', 'frequency', 'duration', 'instructions'];
+        for (const field of fields) {
+          const value = medicine[field];
+          if (value !== undefined && (typeof value !== 'string' || value.length > (field === 'instructions' ? 1000 : 240))) {
+            throw new BadRequestError(`Medication ${field} must be text with a valid length.`);
+          }
+        }
+        if (!medicine.name?.trim() || !medicine.dose?.trim() || !medicine.frequency?.trim()) {
+          throw new BadRequestError('Each prescribed medicine needs a name, dose, and frequency.');
+        }
+        return Object.fromEntries(fields.map((field) => [field, typeof medicine[field] === 'string' ? medicine[field].trim() : '']));
+      });
+      if (!Array.isArray(routine_steps) || routine_steps.length > 30) throw new BadRequestError('routine_steps must contain up to 30 care steps.');
+      const normalizedRoutineSteps = routine_steps.map((step) => {
+        if (!step || typeof step !== 'object' || Array.isArray(step)) throw new BadRequestError('Each routine step must be an object.');
+        const fields = { title: 160, subtitle: 500, category: 80, time_of_day: 80 };
+        for (const [field, maxLength] of Object.entries(fields)) {
+          const value = step[field];
+          if (value !== undefined && (typeof value !== 'string' || value.length > maxLength)) throw new BadRequestError(`Routine step ${field} must be text of at most ${maxLength} characters.`);
+        }
+        if (!step.title?.trim()) throw new BadRequestError('Each routine step needs a title.');
+        return Object.fromEntries(Object.keys(fields).map((field) => [field, typeof step[field] === 'string' ? step[field].trim() : '']));
+      });
+      if (!Array.isArray(diet_meals) || diet_meals.length > 20) throw new BadRequestError('diet_meals must contain up to 20 meal suggestions.');
+      const normalizedDietMeals = diet_meals.map((meal) => {
+        if (!meal || typeof meal !== 'object' || Array.isArray(meal)) throw new BadRequestError('Each diet meal must be an object.');
+        const fields = { type: 60, name: 160, nutrients: 200, benefit: 500 };
+        for (const [field, maxLength] of Object.entries(fields)) {
+          const value = meal[field];
+          if (value !== undefined && (typeof value !== 'string' || value.length > maxLength)) throw new BadRequestError(`Diet meal ${field} must be text of at most ${maxLength} characters.`);
+        }
+        if (!meal.type?.trim() || !meal.name?.trim()) throw new BadRequestError('Each diet meal needs a meal type and name.');
+        return Object.fromEntries(Object.keys(fields).map((field) => [field, typeof meal[field] === 'string' ? meal[field].trim() : '']));
+      });
       const hairTest = await this.hairTestRepository.findByReferenceNo(reference_no.trim());
       if (!hairTest) throw new NotFoundError('Hair test not found for that reference number.');
 
@@ -250,6 +299,12 @@ export class AdminController {
         duration: duration.trim(),
         instructions: instructions.trim(),
         doctor_name: doctor_name.trim(),
+        medications: normalizedMedications,
+        diagnosis: diagnosis.trim(),
+        stage: stage.trim(),
+        next_review_date: next_review_date.trim(),
+        routine_steps: normalizedRoutineSteps,
+        diet_meals: normalizedDietMeals,
         ...(date ? { date } : {}),
       });
       return sendSuccess(res, {

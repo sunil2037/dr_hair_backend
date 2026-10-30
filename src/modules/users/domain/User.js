@@ -42,6 +42,7 @@ export class User {
       gender: this.gender,
       city: this.city,
       occupation: this.occupation,
+      platform: this.platform,
       profile_url: this.profile_url,
     };
   }

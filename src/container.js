@@ -37,6 +37,7 @@ import { NotificationController } from './modules/notifications/presentation/not
 import { VideoController } from './modules/media/presentation/video.controller.js';
 import { AdminController } from './modules/admin/presentation/admin.controller.js';
 import { AdminAuthController } from './modules/admin/presentation/admin-auth.controller.js';
+import { PatientClinicalController } from './modules/patient/presentation/patient-clinical.controller.js';
 
 // Routers
 import { createAuthRouter } from './modules/auth/presentation/auth.routes.js';
@@ -50,6 +51,7 @@ import { MediaController } from './modules/media/presentation/media.controller.j
 import { createMediaRouter } from './modules/media/presentation/media.routes.js';
 import { createAdminRouter } from './modules/admin/presentation/admin.routes.js';
 import { createAdminAuthRouter } from './modules/admin/presentation/admin-auth.routes.js';
+import { createPatientClinicalRouter } from './modules/patient/presentation/patient-clinical.routes.js';
 
 /**
  * Dependency Injection Container
@@ -158,6 +160,11 @@ export const createContainer = () => {
   const notificationController = new NotificationController({ deviceTokenRepository });
   const videoController = new VideoController({ videoRepository });
   const adminAuthController = new AdminAuthController({ adminAuthUseCase });
+  const patientClinicalController = new PatientClinicalController({
+    hairTestRepository,
+    treatmentRepository,
+    clinicalReportRepository,
+  });
   const mediaController = new MediaController();
   const adminController = new AdminController({
     userRepository,
@@ -184,6 +191,7 @@ export const createContainer = () => {
     videoController,
   });
   const adminAuthRouter = createAdminAuthRouter({ adminAuthController });
+  const patientClinicalRouter = createPatientClinicalRouter({ patientClinicalController });
 
   return {
     repositories: {
@@ -241,6 +249,7 @@ export const createContainer = () => {
       mediaRouter,
       adminRouter,
       adminAuthRouter,
+      patientClinicalRouter,
     },
   };
 };

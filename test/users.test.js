@@ -22,7 +22,7 @@ describe('Users / Admin Module - Clean Architecture Tests', () => {
     const result = await registerUserUseCase.execute({
       name: 'Dr. Test User',
       email: 'test@drhair.health',
-      phone: '9123456789',
+      verifiedLogin: 'test@drhair.health',
       age: 30,
       gender: 'Female',
       city: 'Bangalore',
@@ -48,6 +48,7 @@ describe('Users / Admin Module - Clean Architecture Tests', () => {
       name: 'Sunil Sharma Updated',
       email: 'user_updated@example.com',
       contact: '9876543210',
+      verifiedLogin: 'user_updated@example.com',
     });
 
     assert.equal(result.message, 'Profile updated successfully.');
@@ -55,9 +56,12 @@ describe('Users / Admin Module - Clean Architecture Tests', () => {
   });
 
   it('should update user profile avatar', async () => {
+    updateProfilePictureUseCase.imageStorage = {
+      uploadImage: async () => ({ secureUrl: 'uploads/profiles/custom_avatar_123.jpg' }),
+    };
     const result = await updateProfilePictureUseCase.execute({
       userId: 12,
-      file: { filename: 'custom_avatar_123.jpg' },
+      file: { filename: 'custom_avatar_123.jpg', buffer: Buffer.from('fake image') },
       action: 'upload',
     });
 

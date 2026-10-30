@@ -33,6 +33,18 @@ export class TreatmentRepository extends ITreatmentRepository {
     return treatments.map((t) => new Treatment(t));
   }
 
+  async findByUserId(userId) {
+    const numericId = Number(userId);
+    if (isMongoConnected()) {
+      const records = await TreatmentModel.find({ userId: numericId }).sort({ date: -1, id: -1 }).lean();
+      return records.map(toTreatment);
+    }
+    return store.treatments
+      .filter((record) => Number(record.userId) === numericId)
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(b.id) - Number(a.id))
+      .map((record) => new Treatment(record));
+  }
+
   async create(treatmentData) {
     if (isMongoConnected()) {
       return toTreatment(

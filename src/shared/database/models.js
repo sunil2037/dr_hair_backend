@@ -57,6 +57,40 @@ const hairTestSchema = new Schema(
   { collection: 'hair_tests', strict: false, versionKey: false },
 );
 
+const prescribedMedicationSchema = new Schema(
+  {
+    catalog_id: { type: String, default: '' },
+    name: { type: String, required: true, trim: true },
+    category: { type: String, default: '', trim: true },
+    form: { type: String, default: '', trim: true },
+    dose: { type: String, required: true, trim: true },
+    frequency: { type: String, required: true, trim: true },
+    duration: { type: String, default: '', trim: true },
+    instructions: { type: String, default: '', trim: true },
+  },
+  { _id: false, strict: true },
+);
+
+const careRoutineStepSchema = new Schema(
+  {
+    title: { type: String, required: true, trim: true },
+    subtitle: { type: String, default: '', trim: true },
+    category: { type: String, default: '', trim: true },
+    time_of_day: { type: String, default: '', trim: true },
+  },
+  { _id: false, strict: true },
+);
+
+const dietMealSchema = new Schema(
+  {
+    type: { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true },
+    nutrients: { type: String, default: '', trim: true },
+    benefit: { type: String, default: '', trim: true },
+  },
+  { _id: false, strict: true },
+);
+
 const treatmentSchema = new Schema(
   {
     id: { type: Number, required: true, unique: true, index: true },
@@ -67,6 +101,12 @@ const treatmentSchema = new Schema(
     duration: { type: String, default: '' },
     instructions: { type: String, default: '' },
     doctor_name: { type: String, default: '' },
+    medications: { type: [prescribedMedicationSchema], default: [] },
+    diagnosis: { type: String, default: '', trim: true },
+    stage: { type: String, default: '', trim: true },
+    next_review_date: { type: String, default: '' },
+    routine_steps: { type: [careRoutineStepSchema], default: [] },
+    diet_meals: { type: [dietMealSchema], default: [] },
     date: { type: String, default: () => new Date().toISOString().slice(0, 10) },
   },
   { collection: 'treatments', strict: false, versionKey: false },

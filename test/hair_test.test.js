@@ -9,6 +9,12 @@ describe('Hair Test & Treatment Modules - Clean Architecture Tests', () => {
     getHairTestsUseCase,
     getTreatmentHistoryUseCase,
   } = container.useCases;
+  submitHairTestUseCase.imageStorage = {
+    uploadImage: async (_buffer, folder) => ({
+      publicId: `${folder}/test-scalp-image`,
+      secureUrl: 'https://res.cloudinary.com/test/image/upload/test-scalp-image.jpg',
+    }),
+  };
 
   let createdReferenceNo = '';
 
@@ -46,8 +52,8 @@ describe('Hair Test & Treatment Modules - Clean Architecture Tests', () => {
         hair_loss_stage: 'Stage-2',
       },
       files: {
-        photo_front: [{ filename: 'scalp_front_test.jpg' }],
-        photo_top: [{ filename: 'scalp_top_test.jpg' }],
+        photo_front: [{ filename: 'scalp_front_test.jpg', buffer: Buffer.from('front image') }],
+        photo_top: [{ filename: 'scalp_top_test.jpg', buffer: Buffer.from('top image') }],
       },
     });
 
@@ -67,6 +73,7 @@ describe('Hair Test & Treatment Modules - Clean Architecture Tests', () => {
   it('should retrieve doctor treatment history by reference_no', async () => {
     const treatments = await getTreatmentHistoryUseCase.execute({
       referenceNoOrId: 'HT-2026-0042',
+      userId: 12,
     });
 
     assert.ok(Array.isArray(treatments));
