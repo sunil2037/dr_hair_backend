@@ -22,7 +22,7 @@ export class MongoRateLimitStore {
       return await action();
     } catch (error) {
       if (error instanceof AppError) throw error;
-      throw new AppError('Security rate limit storage is unavailable.', 503);
+      return undefined;
     }
   }
 
