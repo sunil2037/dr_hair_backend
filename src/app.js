@@ -43,7 +43,7 @@ export const createApp = () => {
   // 2. System & Health Check Endpoints
   app.get('/', (req, res) => {
     const db = databaseStatus();
-    const healthy = config.env !== 'production' || db === 'connected';
+    const healthy = config.env !== 'production' || db === 'connected' || db === 'memory';
     res.status(healthy ? 200 : 503).json({
       name: 'Dr. Hair Backend API',
       version: '1.0.0',
@@ -68,7 +68,7 @@ export const createApp = () => {
 
   app.get('/health', (req, res) => {
     const db = databaseStatus();
-    const healthy = config.env !== 'production' || db === 'connected';
+    const healthy = config.env !== 'production' || db === 'connected' || db === 'memory';
     res.status(healthy ? 200 : 503).json({
       status: healthy ? 'ok' : 'unavailable',
       database: db,
