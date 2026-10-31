@@ -35,6 +35,10 @@ export class HairTest {
     protein_intake,
     // Treatment History & Goals
     family_history,
+    allergy_status,
+    allergy_details,
+    current_medications_status,
+    current_medications,
     have_taken_treatment,
     previous_treatments = [],
     treatment_results,
@@ -72,6 +76,10 @@ export class HairTest {
     this.diet_type = diet_type;
     this.protein_intake = protein_intake;
     this.family_history = family_history;
+    this.allergy_status = allergy_status;
+    this.allergy_details = allergy_details;
+    this.current_medications_status = current_medications_status;
+    this.current_medications = current_medications;
     this.have_taken_treatment = have_taken_treatment;
     this.previous_treatments = previous_treatments;
     this.treatment_results = treatment_results;

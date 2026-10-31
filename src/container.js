@@ -10,6 +10,11 @@ import { VideoRepository } from './modules/media/infrastructure/VideoRepository.
 import { AdminAccountRepository } from './modules/admin/infrastructure/AdminAccountRepository.js';
 import { ClinicalReportRepository } from './modules/admin/infrastructure/ClinicalReportRepository.js';
 import { CloudinaryImageStorage } from './modules/media/infrastructure/CloudinaryImageStorage.js';
+import { AppointmentRepository } from './modules/appointments/infrastructure/AppointmentRepository.js';
+import { PatientActivityRepository } from './modules/patient/infrastructure/PatientActivityRepository.js';
+import { ProgressCheckInRepository } from './modules/patient/infrastructure/ProgressCheckInRepository.js';
+import { MediaReferenceRepository } from './modules/media/infrastructure/MediaReferenceRepository.js';
+import { PatientArchiveService } from './modules/admin/application/PatientArchiveService.js';
 
 // Use Cases
 import { SendOtpUseCase } from './modules/auth/application/SendOtpUseCase.js';
@@ -38,6 +43,7 @@ import { VideoController } from './modules/media/presentation/video.controller.j
 import { AdminController } from './modules/admin/presentation/admin.controller.js';
 import { AdminAuthController } from './modules/admin/presentation/admin-auth.controller.js';
 import { PatientClinicalController } from './modules/patient/presentation/patient-clinical.controller.js';
+import { AppointmentController } from './modules/appointments/presentation/appointment.controller.js';
 
 // Routers
 import { createAuthRouter } from './modules/auth/presentation/auth.routes.js';
@@ -69,12 +75,16 @@ export const createContainer = () => {
   const videoRepository = new VideoRepository();
   const adminAccountRepository = new AdminAccountRepository();
   const clinicalReportRepository = new ClinicalReportRepository();
+  const appointmentRepository = new AppointmentRepository();
+  const patientActivityRepository = new PatientActivityRepository();
+  const progressCheckInRepository = new ProgressCheckInRepository();
+  const mediaReferenceRepository = new MediaReferenceRepository();
+  const patientArchiveService = new PatientArchiveService({ clinicalReportRepository });
   const imageStorage = new CloudinaryImageStorage();
 
   // 2. Application Layer (Use Cases)
   const sendOtpUseCase = new SendOtpUseCase({
     otpRepository,
-    userRepository,
     smsService,
   });
 
@@ -111,6 +121,7 @@ export const createContainer = () => {
 
   const getHairTestsUseCase = new GetHairTestsUseCase({
     hairTestRepository,
+    imageStorage,
   });
 
   const getTreatmentHistoryUseCase = new GetTreatmentHistoryUseCase({
@@ -160,12 +171,17 @@ export const createContainer = () => {
   const notificationController = new NotificationController({ deviceTokenRepository });
   const videoController = new VideoController({ videoRepository });
   const adminAuthController = new AdminAuthController({ adminAuthUseCase });
+  const appointmentController = new AppointmentController({ appointmentRepository, userRepository, patientActivityRepository });
   const patientClinicalController = new PatientClinicalController({
     hairTestRepository,
     treatmentRepository,
     clinicalReportRepository,
+    appointmentRepository,
+    patientActivityRepository,
+    progressCheckInRepository,
+    imageStorage,
   });
-  const mediaController = new MediaController();
+  const mediaController = new MediaController({ mediaReferenceRepository });
   const adminController = new AdminController({
     userRepository,
     hairTestRepository,
@@ -174,6 +190,10 @@ export const createContainer = () => {
     reviewRepository,
     adminAccountRepository,
     createAdminAccountUseCase,
+    imageStorage,
+    appointmentRepository,
+    patientActivityRepository,
+    progressCheckInRepository,
   });
 
   // 4. Routes
@@ -189,9 +209,10 @@ export const createContainer = () => {
     adminController,
     notificationController,
     videoController,
+    appointmentController,
   });
   const adminAuthRouter = createAdminAuthRouter({ adminAuthController });
-  const patientClinicalRouter = createPatientClinicalRouter({ patientClinicalController });
+  const patientClinicalRouter = createPatientClinicalRouter({ patientClinicalController, appointmentController });
 
   return {
     repositories: {
@@ -200,14 +221,19 @@ export const createContainer = () => {
       hairTestRepository,
       treatmentRepository,
       clinicalReportRepository,
+      appointmentRepository,
+      patientActivityRepository,
+      progressCheckInRepository,
       reviewRepository,
       deviceTokenRepository,
       videoRepository,
+      mediaReferenceRepository,
       adminAccountRepository,
     },
     services: {
       smsService,
       imageStorage,
+      patientArchiveService,
     },
     useCases: {
       sendOtpUseCase,
@@ -236,6 +262,8 @@ export const createContainer = () => {
       mediaController,
       adminController,
       adminAuthController,
+      appointmentController,
+      patientClinicalController,
     },
     routers: {
       authRouter,

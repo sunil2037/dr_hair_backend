@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "admin:setup": "node src/scripts/setup-super-admin.js",
+    "media:migrate-clinical-private": "node src/scripts/migrate-clinical-images-private.js",
     "test": "node --test test/**/*.test.js",
     "deploy": "./deploy.sh"
   },

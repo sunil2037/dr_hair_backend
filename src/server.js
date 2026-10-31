@@ -3,9 +3,10 @@ import { config } from './config/env.js';
 import { logger } from './shared/utils/logger.js';
 import { connectDatabase, disconnectDatabase } from './shared/database/mongodb.js';
 
-const { app } = createApp();
+const { app, container } = createApp();
 
 await connectDatabase();
+container.services.patientArchiveService.start();
 
 const server = app.listen(config.port, '0.0.0.0', () => {
   logger.info(`=======================================================`);

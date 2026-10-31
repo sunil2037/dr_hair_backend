@@ -1,6 +1,6 @@
 # Dr. Hair data architecture and API design
 
-**Status: design proposal, based on the current Flutter routes/screens and the admin panel.** This document inventories the API surface to build; it does not claim the endpoints are implemented. Keep the existing legacy routes while the clients are migrated to the versioned REST API.
+**Status: architecture inventory and build proposal.** Implemented paths are tracked in [`openapi.yaml`](openapi.yaml); other entries remain planned. Keep the existing legacy routes while clients migrate to the versioned REST API.
 
 ## Screens reviewed
 
@@ -29,6 +29,8 @@ The mobile app currently keeps OTP, profile, assessment, cart, care and appointm
 - Admin accounts, role templates, permission overrides and audit history
 
 The admin panel currently uses demo sign-in and browser session state. The backend must enforce every permission; hiding a tab in the browser is not authorization.
+
+Registered patients use a backend-issued patient code in the format `DHP0001`. It is returned in patient/profile API responses, shown in Flutter and the admin directory, accepted by patient-detail/report APIs, and searchable from the admin directory. The numeric database ID remains an internal key.
 
 ## Recommended architecture
 
@@ -76,7 +78,7 @@ Use one API prefix, `/api/v1`. Keep old Flutter-compatible route names as tempor
 | `sessions` | Hashed refresh token, admin/user reference, device, expiry and revocation time; supports sign-out and staff suspension. |
 | `hair_assessments` | Questionnaire answers, owner, photo asset references, draft/submitted/review status and timestamps. |
 | `clinical_tests` | Admin-uploaded result files, patient/assessment reference, test metadata, uploader and review state. |
-| `clinical_reports` | Clinician-authored diagnosis/summary, stage, metrics, attached files, approver, approval and patient-sharing timestamps. |
+| `clinical_reports` | Patient report metadata and authenticated Cloudinary asset IDs, uploader, and `visibility` (`Private` by default or `Shared`) with its sharing timestamp. Patient APIs list and download shared reports only. |
 | `patient_documents` | Lab results, prescriptions, consent and other files; category, visibility, access and uploader metadata. |
 | `care_plans` | Active/completed treatment plan, clinician, diagnosis, products/doses, instructions, routine steps, diet plan and next review. |
 | `progress_checkins` | Patient rating, scalp region, shedding, notes, photo references and clinician review/note. |
@@ -112,6 +114,7 @@ The Atlas cluster has no live app data yet. Before first production records, spl
 
 - Patient-owned endpoints derive `patientId` from the verified bearer token. Never accept a client-supplied patient ID to select another patient's record.
 - Admin endpoints require a server-checked permission such as `assessments.review`, `reports.share`, `orders.manage` or `content.publish`, followed by object-level checks.
+- Patient report uploads remain private until a Super Admin changes their visibility; hiding a report removes it from patient listing and download access.
 - List endpoints use `page`, `limit`, filters and a consistent `meta` block. Return stable public IDs; do not expose MongoDB internals unnecessarily.
 - Errors use a stable code/message/field-errors shape. All admin mutations, report sharing, stock changes, refunds and permission changes write an audit event.
 - The server calculates product price, discount, tax/shipping and payable total. The client submits product/variant IDs, quantities and coupon code only.
@@ -135,7 +138,7 @@ The Atlas cluster has no live app data yet. Before first production records, spl
 | Hair assessment | `POST /hair-assessments` create draft; `PATCH /hair-assessments/{id}` save answers; `POST /hair-assessments/{id}/submit`; `GET /hair-assessments?mine=true`; `GET /hair-assessments/{id}`. Current submit/history endpoints exist as `/hair-tests/*` aliases. |
 | Scalp photos | `POST /media/uploads/signature` and `POST /media/uploads/complete` for each image; assessment submit references completed asset IDs. |
 | Result/treatment detail | `GET /me/clinical-reports`, `GET /clinical-reports/{id}`, `GET /me/care-plan`, `GET /me/care-plan/history`. Existing treatment-history API is present, but full report approval/sharing is not. |
-| Progress | `GET /me/progress-checkins`, `POST /me/progress-checkins`, `DELETE /me/progress-checkins/{id}`. Upload images via signed media flow. |
+| Progress | Implemented: `GET/POST /api/v1/patient/progress-checkins`. The POST accepts one to three labeled photos in a single multipart request; the verified user owns the saved check-in. |
 | Routine | `GET /me/care-plan` supplies assigned tasks; `GET /me/routine-completions?date=...`; `PUT /me/routine-completions/{taskId}` toggles today's completion. |
 | Diet plan | `GET /me/diet-plan`, `PUT /me/diet-checkins/{mealId}`. Keep nutrition templates in the assigned care plan. |
 | Reminders | `GET/POST/PATCH/DELETE /me/reminders` only if settings should sync across devices. Local notification scheduling remains on the phone; remote campaigns are a separate admin feature. |
@@ -165,9 +168,9 @@ The Atlas cluster has no live app data yet. Before first production records, spl
 | Admin sign-in | `POST /admin/auth/otp`, `POST /admin/auth/verify`, `POST /admin/auth/refresh`, `POST /admin/auth/logout`, `GET /admin/me`. Replace the panel's demo “any password” sign-in. |
 | Overview | `GET /admin/dashboard/summary`, `GET /admin/dashboard/activity`; server computes real counts/revenue/queues under the caller's permissions. |
 | Patients & assessments | `GET /admin/patients?search=&status=&page=`, `GET /admin/patients/{id}`, `GET /admin/patients/{id}/assessments`, `GET /admin/assessments/{id}`. Limited lookup and clinical chart access use separate permissions. |
-| Clinical records/documents | `GET/POST /admin/patients/{id}/documents`, `GET /admin/documents/{id}/download-url`, `PATCH /admin/documents/{id}`; role-checked upload, private visibility and sharing. |
-| Hair tests/reports | `GET /admin/clinical-tests`, `POST /admin/clinical-tests`, `PATCH /admin/clinical-tests/{id}/status`; `POST /admin/reports`, `PATCH /admin/reports/{id}`, `POST /admin/reports/{id}/approve`, `POST /admin/reports/{id}/share`. The existing admin currently only lists assessments and creates treatment-plan entries. |
-| Care plans/progress | `GET/POST /admin/patients/{id}/care-plans`, `PATCH /admin/care-plans/{id}`, `GET /admin/patients/{id}/progress-checkins`, `POST /admin/progress-checkins/{id}/review`. |
+| Clinical records/documents | Implemented patient read: `GET /api/v1/admin/users/{userId}` returns profile, assessments, treatments, active/archived reports, appointments, activity, and progress check-ins. Report upload, share/hide, archive and restore routes are in `openapi.yaml`; broader patient document management remains planned. |
+| Hair tests/reports | Existing assessment and treatment routes remain in use. Clinical reports support upload, patient access toggling, a 30-day recoverable archive, restore-as-private, and permanent purge after expiry. |
+| Care plans/progress | Admin patient read includes progress check-ins; patient-owned `GET/POST /api/v1/patient/progress-checkins` stores check-in metadata and the uploaded photo URLs. Clinician review/note editing remains planned. |
 | Appointments | `GET/POST /admin/appointments`, `PATCH /admin/appointments/{id}`, `GET/PATCH /admin/clinic-settings`, `POST/DELETE /admin/clinic-holidays/{date}`. |
 | Products/inventory | `GET/POST /admin/products`, `GET/PATCH/DELETE /admin/products/{id}`, `POST /admin/products/{id}/inventory-movements`, `GET /admin/products/{id}/inventory-movements`. |
 | Orders | `GET /admin/orders`, `GET /admin/orders/{id}`, `PATCH /admin/orders/{id}/fulfilment`, `POST /admin/orders/{id}/refund`, `POST /admin/orders/{id}/returns/resolve`, `GET /admin/commerce/summary`, `GET /admin/commerce/export`. Payment/refund actions require a selected gateway. |

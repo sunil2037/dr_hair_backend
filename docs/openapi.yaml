@@ -3,8 +3,8 @@ info:
   title: Dr. Hair API
   version: 1.0.0
   description: >-
-    Express API for the Flutter app and admin panel. MongoDB Atlas is used when
-    MONGODB_URI is configured; local development can fall back to in-memory repositories.
+    Express API for the Flutter app and admin panel. MongoDB Atlas is required in
+    production; only local development can fall back to in-memory repositories.
     Admin routes require a password-authenticated JWT with either the admin or super_admin role.
 servers:
   - url: /
@@ -22,6 +22,31 @@ tags:
   - name: Media
   - name: Patient app
 paths:
+  /api/v1/media:
+    delete:
+      tags: [Media]
+      summary: Delete an unattached general media asset
+      description: Authenticated users can delete only assets in their own general upload folder. The API rejects assets referenced by a clinical report, scalp assessment, progress check-in, or video record. Profile, report, assessment, and progress media must be removed through their resource-specific API.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                public_id: { type: string, maxLength: 240 }
+                resource_type: { type: string, enum: [image, video] }
+              required: [public_id, resource_type]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Media is still linked to a saved record }
+        '500': { $ref: '#/components/responses/ServerError' }
+
   /health:
     get:
       tags: [System]
@@ -34,7 +59,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  status: { type: string, enum: [ok, degraded] }
+                  status: { type: string, enum: [ok, degraded, unavailable] }
                   database: { type: string, enum: [connected, disconnected, memory] }
                   uptime: { type: number }
                   timestamp: { type: string, format: date-time }
@@ -46,7 +71,7 @@ paths:
     post:
       tags: [Authentication]
       summary: Request a sign-in or registration OTP
-      description: In development, the configured test OTP may be returned in the message. No SMS provider is required for the current test flow.
+      description: Returns a generic response without revealing whether the identity belongs to an account. Development uses a local stub and never returns the OTP. OTPs expire after the configured period, allow up to five wrong guesses, and production request limits are shared through MongoDB. A delivery provider must be configured before OTP requests can succeed outside development.
       x-legacy-path: /auth/send_login_otp
       requestBody:
         required: true
@@ -63,11 +88,9 @@ paths:
               schema:
                 allOf:
                   - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      type: { type: string, enum: [login, register] }
         '400': { $ref: '#/components/responses/BadRequest' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { description: OTP delivery provider is not configured for this environment }
         '500': { $ref: '#/components/responses/ServerError' }
 
   /api/v1/auth/verify_login_otp:
@@ -252,8 +275,8 @@ paths:
   /api/v1/media/upload:
     post:
       tags: [Media]
-      summary: Upload one image or video to Cloudinary
-      description: Streams 1 to 5 mixed image/video files directly to Cloudinary, avoiding full-file buffering in the API. Registered users can upload their own media and admins can upload admin media. Response includes one URL and asset_id per file; save those URLs separately through the resource-specific API. Each image is limited to 10 MiB and each video to MAX_MEDIA_FILE_SIZE_MB (default 100 MiB).
+      summary: Upload one to five images or videos to Cloudinary
+      description: Streams 1 to 5 mixed image/video files directly to Cloudinary, avoiding full-file buffering in the API. Registered users can upload their own media and admins can upload admin media. Assessment and progress images are stored as authenticated private assets; their returned URL is signed and expires after five minutes. Save the public_id through the resource-specific API so it can return a fresh signed URL. Each image is limited to 10 MiB and each video to MAX_MEDIA_FILE_SIZE_MB (default 100 MiB).
       security: [{ bearerAuth: [] }]
       parameters:
         - in: header
@@ -300,6 +323,8 @@ paths:
                                 asset_id: { type: string }
                                 public_id: { type: string }
                                 url: { type: string, format: uri }
+                                delivery_type: { type: string, enum: [upload, authenticated] }
+                                purpose: { type: string, enum: [general, profile, assessment, progress, content] }
                                 resource_type: { type: string, enum: [image, video] }
                                 format: { type: [string, 'null'] }
                                 mime_type: { type: string }
@@ -395,6 +420,71 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/ServerError' }
 
+  /api/v1/patient/progress-checkins:
+    get:
+      tags: [Patient app]
+      summary: List progress check-ins for the authenticated patient
+      description: Check-ins are scoped to the verified user and include freshly signed URLs for private progress images. Each image URL expires after five minutes.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Patient app]
+      summary: Save a patient progress check-in using previously uploaded media
+      description: Upload one to three photos first through POST /api/v1/media/upload with X-Media-Purpose progress, then send each returned public_id with its angle. This endpoint verifies the private Cloudinary asset, owner folder, actual format, and byte count before saving it.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatientProgressCheckInRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { description: Uploaded image exceeds the configured size limit }
+    delete:
+      tags: [Patient app]
+      summary: Delete one progress photo from the patient's check-in
+      description: Removes the image reference and deletes the corresponding authenticated Cloudinary asset. If storage deletion fails, the database reference is restored.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: checkInId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: angle
+          in: path
+          required: true
+          schema: { type: string, enum: [front, top, back] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { description: Cloudinary deletion failed; the image reference was restored }
+
+  /api/v1/admin/users/{userId}/archive:
+    get:
+      tags: [Admin]
+      summary: List a patient's reports in the 30-day recovery archive
+      description: Super Admin only. Reports past purge_after have already been permanently removed and are not returned.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/v1/patient/reports/{reportId}/download:
     get:
       tags: [Patient app]
@@ -417,7 +507,7 @@ paths:
     get:
       tags: [Reviews]
       summary: List reviews for app content
-      description: Returns the current review list. The current implementation does not apply query-string filters; use the legacy POST body for the supported filters.
+      description: Returns active reviews only. Pending and rejected reviews cannot be selected through public filters.
       x-legacy-path: /Review/review_get
       responses:
         '200': { $ref: '#/components/responses/Success' }
@@ -425,7 +515,7 @@ paths:
     post:
       tags: [Reviews]
       summary: List reviews using the legacy form body
-      description: Prefer GET for new integrations. This POST is retained for the Flutter-compatible legacy contract.
+      description: Prefer GET for new integrations. This POST is retained for the Flutter-compatible legacy contract. Public filters are review_type and page; status is always restricted to active.
       x-legacy-path: /Review/review_get
       requestBody:
         required: false
@@ -505,6 +595,7 @@ paths:
     get:
       tags: [Admin]
       summary: Search registered patient profiles
+      description: Search by name, email, phone, numeric database ID, or the patient-facing patient_code (for example DHP0001).
       security: [{ bearerAuth: [] }]
       parameters:
         - name: page
@@ -526,10 +617,11 @@ paths:
       - name: userId
         in: path
         required: true
-        schema: { type: integer, minimum: 1 }
+        schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
     get:
       tags: [Admin]
-      summary: Read a patient profile, hair assessments, treatments, and private report metadata
+      summary: Read a patient profile and clinical record
+      description: Returns assessments, treatments, active and archived reports, appointments, patient activity, and daily progress check-ins with photo URLs. Report metadata includes visibility history. The archive is included here so the patient detail view can load all report states in one request.
       security: [{ bearerAuth: [] }]
       responses:
         '200': { $ref: '#/components/responses/Success' }
@@ -558,10 +650,11 @@ paths:
       - name: userId
         in: path
         required: true
-        schema: { type: integer, minimum: 1 }
+        schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
     post:
       tags: [Admin]
       summary: Upload a private patient report to authenticated Cloudinary storage
+      description: The new report starts private and records an uploaded visibility-history event.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -580,17 +673,117 @@ paths:
       - name: userId
         in: path
         required: true
-        schema: { type: integer, minimum: 1 }
+        schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
       - name: reportId
         in: path
         required: true
         schema: { type: string, format: uuid }
     get:
       tags: [Admin]
-      summary: Create a 60-second signed download link after checking patient ownership
+      summary: Create a 60-second signed report URL after checking patient ownership
+      description: The default URL forces a download. Set inline=true to request a browser preview for supported PDFs and images.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: inline
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/users/{userId}/reports/{reportId}/visibility:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
+      - name: reportId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Admin]
+      summary: Share a report with the patient or hide it (Super Admin only)
+      description: New reports are private by default. Only shared reports appear in the patient's clinical record and can be downloaded by that patient. Every actual visibility change appends an event with action, actor, and timestamp to visibility_history.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminClinicalReportVisibilityUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/users/{userId}/reports/{reportId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
+      - name: reportId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Admin]
+      summary: Archive a patient report for 30-day recovery (Super Admin only)
+      description: Hides the report from the patient and moves it to archived_reports. The API permanently removes the database record and Cloudinary file after purge_after unless a Super Admin restores it.
       security: [{ bearerAuth: [] }]
       responses:
         '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/users/{userId}/reports/{reportId}/restore:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
+      - name: reportId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Admin]
+      summary: Restore an archived report as private (Super Admin only)
+      description: Restoration is available only during the 30-day retention window. A restored report stays private until it is explicitly shared again.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/users/{userId}/assessments/{assessmentId}/photos/{photoIndex}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
+      - name: assessmentId
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+      - name: photoIndex
+        in: path
+        required: true
+        schema: { type: integer, minimum: 0 }
+    delete:
+      tags: [Admin]
+      summary: Remove one patient scalp photo from its assessment and Cloudinary (Super Admin only)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -917,6 +1110,7 @@ components:
       type: object
       properties:
         id: { oneOf: [{ type: integer }, { type: string }] }
+        patient_code: { type: string, pattern: '^DHP[0-9]{4,}$', example: DHP0001 }
         name: { type: string }
         email: { type: [string, 'null'], format: email }
         phone: { type: [string, 'null'] }
@@ -955,6 +1149,10 @@ components:
         diet_type: { type: string }
         protein_intake: { type: string }
         family_history: { type: string }
+        allergy_status: { type: string, enum: ['No known allergies', 'Yes, I have allergies', 'Not sure'], description: Optional in the API for legacy clients; collected by the current Flutter assessment. }
+        allergy_details: { type: string, maxLength: 500, description: Required when allergy_status is Yes, I have allergies. }
+        current_medications_status: { type: string, enum: ['No', 'Yes', 'Not sure'], description: Optional in the API for legacy clients; collected by the current Flutter assessment. }
+        current_medications: { type: string, maxLength: 1000, description: Required when current_medications_status is Yes. }
         have_taken_treatment: { type: string }
         previous_treatments: { type: string, description: May be a JSON-encoded array }
         treatment_results: { type: string }
@@ -970,7 +1168,6 @@ components:
       type: object
       properties:
         review_type: { type: string }
-        status: { type: string }
         page: { type: string }
     ReviewCreateRequest:
       type: object
@@ -979,10 +1176,9 @@ components:
         rating: { oneOf: [{ type: string }, { type: number, minimum: 1, maximum: 5 }] }
         category: { type: string }
         message: { type: string }
-        avatar: { type: string, format: uri }
         review_type: { type: string }
         page: { type: string }
-      required: [name, message]
+      required: [name, rating, message]
     DeviceTokenRequest:
       type: object
       properties:
@@ -1058,6 +1254,33 @@ components:
         title: { type: string, minLength: 1, maxLength: 160 }
         file: { type: string, format: binary, description: PDF, JPG, PNG, or WebP; maximum 10 MB }
       required: [title, file]
+    PatientProgressCheckInRequest:
+      type: object
+      properties:
+        id: { type: string, minLength: 5, maxLength: 80, description: Client-generated idempotency key }
+        date: { type: string, format: date-time }
+        scalp_region: { type: string, maxLength: 100 }
+        shedding_level: { type: string, maxLength: 100 }
+        notes: { type: string, maxLength: 2000 }
+        density_rating: { type: integer, minimum: 1, maximum: 5 }
+        photos:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items: { $ref: '#/components/schemas/PatientProgressPhotoAsset' }
+      required: [id, date, photos]
+    PatientProgressPhotoAsset:
+      type: object
+      properties:
+        angle: { type: string, enum: [front, top, back] }
+        public_id: { type: string }
+      required: [angle, public_id]
+    AdminClinicalReportVisibilityUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        visibility: { type: string, enum: [Private, Shared] }
+      required: [visibility]
     AdminReviewStatusRequest:
       type: object
       properties:

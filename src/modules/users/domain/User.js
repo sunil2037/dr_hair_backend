@@ -1,9 +1,12 @@
+import { formatPatientCode } from '../../../shared/utils/patient-code.js';
+
 /**
  * User Domain Entity
  */
 export class User {
   constructor({
     id,
+    patient_code,
     name,
     email,
     phone,
@@ -18,6 +21,7 @@ export class User {
     updated_at = new Date(),
   }) {
     this.id = id;
+    this.patient_code = patient_code || formatPatientCode(id);
     this.name = name;
     this.email = email;
     this.phone = phone;
@@ -35,6 +39,7 @@ export class User {
   toPublicProfile() {
     return {
       id: this.id,
+      patient_code: this.patient_code,
       name: this.name,
       email: this.email,
       phone: this.phone,
@@ -50,6 +55,7 @@ export class User {
   toAuthSession() {
     return {
       id: this.id,
+      patient_code: this.patient_code,
       email: this.email,
       phone: this.phone,
       name: this.name,

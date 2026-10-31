@@ -30,7 +30,9 @@ npm run dev
 
 Set `JWT_SECRET` to a private random string of at least 32 characters. Leave `MONGODB_URI` empty only for local demo mode; that mode uses process memory and seeded data, so writes disappear when the process restarts. Production requires a valid Atlas URI and fails startup without it.
 
-The default test OTP is available only in development. OTP request and verification endpoints are rate-limited. No SMS/email delivery provider is configured yet, so production OTP sign-in is not ready.
+The default test OTP is available only in development. OTP requests return a generic message, and codes are HMAC-hashed in storage; the development delivery stub never logs or returns the code. Verification allows five guesses per OTP. Production rate limits are persisted in MongoDB and combine per-IP with per-login limits. No SMS/email delivery provider is configured yet, so requests outside development return `503` and production OTP sign-in is not ready.
+
+Clinical assessment and progress photos now upload as Cloudinary `authenticated` assets and API responses use five-minute signed URLs. Existing photos uploaded before this change remain public until migrated. After connecting the Atlas URI, preview the existing asset count with `npm run media:migrate-clinical-private`; migrate assets and record metadata with `npm run media:migrate-clinical-private -- --apply`. The apply command changes Cloudinary delivery types and invalidates cached public URLs.
 
 Keep `.env` private and out of Git. The current `.gitignore` excludes it. Render secrets belong in the Render environment settings, not in the Blueprint or source code.
 
@@ -44,7 +46,9 @@ Keep `.env` private and out of Git. The current `.gitignore` excludes it. Render
 | `JWT_EXPIRES_IN` | Token lifetime; defaults to `30d` |
 | `MAX_FILE_SIZE_MB` | Maximum accepted image upload size |
 | `MONGODB_URI` | MongoDB Atlas connection URI; required in production |
-| `ADMIN_EMAILS` | Comma-separated email allowlist for admin tokens |
+| `SUPER_ADMIN_ID` | Private first Super Admin login ID; required in production |
+| `SUPER_ADMIN_NAME` | Display name for the bootstrap Super Admin |
+| `SUPER_ADMIN_PASSWORD_HASH` | Scrypt password hash generated locally with `npm run admin:setup`; required in production |
 | `CORS_ORIGINS` | Comma-separated exact browser origins for the admin panel |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Cloudinary server credentials |
 | `CLOUDINARY_IMAGE_FOLDER`, `CLOUDINARY_VIDEO_FOLDER` | Cloudinary folders |

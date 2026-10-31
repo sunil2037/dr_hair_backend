@@ -5,6 +5,7 @@ const { Schema } = mongoose;
 const userSchema = new Schema(
   {
     id: { type: Number, required: true, unique: true, index: true },
+    patient_code: { type: String, trim: true, uppercase: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, trim: true, lowercase: true },
     phone: { type: String, trim: true },
@@ -22,6 +23,7 @@ const userSchema = new Schema(
   { collection: 'users', strict: false, versionKey: false },
 );
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
+userSchema.index({ patient_code: 1 }, { unique: true, sparse: true });
 userSchema.index({ role: 1, created_at: -1, id: -1 });
 
 const adminAccountSchema = new Schema(
@@ -40,8 +42,9 @@ const adminAccountSchema = new Schema(
 const otpSchema = new Schema(
   {
     login: { type: String, required: true, unique: true, index: true },
-    otp: { type: String, required: true },
+    otpHash: { type: String, required: true, select: false },
     expiresAt: { type: Date, required: true, expires: 0 },
+    attempts: { type: Number, default: 0, min: 0 },
     type: { type: String, enum: ['login', 'register'], default: 'login' },
   },
   { collection: 'otps', versionKey: false },
@@ -112,6 +115,17 @@ const treatmentSchema = new Schema(
   { collection: 'treatments', strict: false, versionKey: false },
 );
 
+const reportVisibilityEventSchema = new Schema(
+  {
+    action: { type: String, enum: ['uploaded', 'shared', 'hidden', 'archived', 'restored'], required: true },
+    visibility: { type: String, enum: ['Private', 'Shared'], required: true },
+    changed_by: { type: String, default: '' },
+    changed_at: { type: Date, default: Date.now },
+    patient_consent_confirmed: { type: Boolean, default: false },
+  },
+  { _id: false, strict: true },
+);
+
 const clinicalReportSchema = new Schema(
   {
     id: { type: String, required: true, unique: true, index: true },
@@ -123,11 +137,112 @@ const clinicalReportSchema = new Schema(
     bytes: { type: Number, required: true },
     public_id: { type: String, required: true, unique: true },
     uploaded_by: { type: String, default: '' },
+    visibility: { type: String, enum: ['Private', 'Shared'], default: 'Private' },
+    shared_at: { type: Date, default: null },
+    visibility_history: { type: [reportVisibilityEventSchema], default: [] },
+    deleted_at: { type: Date, default: null, index: true },
+    purge_after: { type: Date, default: null, index: true },
+    deleted_by: { type: String, default: '' },
     created_at: { type: Date, default: Date.now },
   },
   { collection: 'clinical_reports', versionKey: false },
 );
 clinicalReportSchema.index({ userId: 1, created_at: -1 });
+clinicalReportSchema.index({ userId: 1, visibility: 1, created_at: -1 });
+clinicalReportSchema.index({ deleted_at: 1, purge_after: 1 });
+
+const appointmentHistorySchema = new Schema(
+  {
+    action: { type: String, required: true, trim: true },
+    status: { type: String, required: true, trim: true },
+    changed_by: { type: String, default: '' },
+    changed_at: { type: Date, default: Date.now },
+    starts_at: { type: String, default: '' },
+  },
+  { _id: false, strict: true },
+);
+
+const appointmentSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: Number, required: true, index: true },
+    patient_code: { type: String, default: '' },
+    starts_at: { type: String, required: true, index: true },
+    slot_key: { type: String, sparse: true, unique: true },
+    reason: { type: String, default: '' },
+    source: { type: String, enum: ['App', 'Phone', 'WhatsApp', 'Reception'], default: 'App' },
+    status: { type: String, enum: ['Requested', 'Confirmed', 'Arrived', 'In Consultation', 'Completed', 'Cancelled', 'No show'], default: 'Requested', index: true },
+    type: { type: String, default: 'Physical Clinic Visit' },
+    doctor_name: { type: String, default: 'Dr. Jai Bansal' },
+    room: { type: String, default: 'Room 101 - Chamber A' },
+    opd_token: { type: String, default: '' },
+    status_history: { type: [appointmentHistorySchema], default: [] },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'clinic_appointments', versionKey: false },
+);
+appointmentSchema.index({ userId: 1, starts_at: -1 });
+appointmentSchema.index({ starts_at: 1, status: 1 });
+
+const clinicClosedDateSchema = new Schema(
+  {
+    date: { type: String, required: true, unique: true, index: true },
+    reason: { type: String, default: '' },
+    created_by: { type: String, default: '' },
+    created_at: { type: Date, default: Date.now },
+  },
+  { collection: 'clinic_closed_dates', versionKey: false },
+);
+
+const patientActivitySchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: Number, required: true, index: true },
+    patient_code: { type: String, default: '' },
+    type: { type: String, required: true, trim: true },
+    title: { type: String, required: true, trim: true },
+    summary: { type: String, default: '', trim: true },
+    actor: { type: String, default: 'Clinic' },
+    occurred_at: { type: Date, default: Date.now, index: true },
+    metadata: { type: Schema.Types.Mixed, default: {} },
+  },
+  { collection: 'patient_activity', versionKey: false },
+);
+patientActivitySchema.index({ userId: 1, occurred_at: -1 });
+
+const progressPhotoSchema = new Schema(
+  {
+    angle: { type: String, enum: ['front', 'top', 'back'], required: true },
+    public_id: { type: String, required: true },
+    url: { type: String, required: true },
+    delivery_type: { type: String, enum: ['upload', 'authenticated'], default: 'upload' },
+    format: { type: String, default: '' },
+    file_name: { type: String, default: '' },
+    mime_type: { type: String, default: 'image/jpeg' },
+    bytes: { type: Number, default: 0 },
+  },
+  { _id: false, strict: true },
+);
+
+const progressCheckInSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: Number, required: true, index: true },
+    patient_code: { type: String, default: '' },
+    date: { type: Date, required: true, index: true },
+    scalp_region: { type: String, default: 'Scalp' },
+    shedding_level: { type: String, default: 'Not recorded' },
+    notes: { type: String, default: '' },
+    density_rating: { type: Number, min: 1, max: 5, default: 3 },
+    is_doctor_reviewed: { type: Boolean, default: false },
+    doctor_note: { type: String, default: '' },
+    photos: { type: [progressPhotoSchema], default: [] },
+    created_at: { type: Date, default: Date.now },
+  },
+  { collection: 'patient_progress_checkins', versionKey: false },
+);
+progressCheckInSchema.index({ userId: 1, date: -1 });
 
 const reviewSchema = new Schema(
   {
@@ -182,16 +297,43 @@ const counterSchema = new Schema(
   { collection: 'counters', versionKey: false },
 );
 
+const rateLimitCounterSchema = new Schema(
+  {
+    key: { type: String, required: true, unique: true },
+    totalHits: { type: Number, required: true, default: 0 },
+    resetTime: { type: Date, required: true },
+  },
+  { collection: 'rate_limit_counters', versionKey: false },
+);
+rateLimitCounterSchema.index({ resetTime: 1 }, { expireAfterSeconds: 0 });
+
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);
 export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.model('DrHairAdminAccount', adminAccountSchema);
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
 export const HairTestModel = mongoose.models.DrHairHairTest || mongoose.model('DrHairHairTest', hairTestSchema);
 export const TreatmentModel = mongoose.models.DrHairTreatment || mongoose.model('DrHairTreatment', treatmentSchema);
 export const ClinicalReportModel = mongoose.models.DrHairClinicalReport || mongoose.model('DrHairClinicalReport', clinicalReportSchema);
+export const AppointmentModel = mongoose.models.DrHairAppointment || mongoose.model('DrHairAppointment', appointmentSchema);
+export const ClinicClosedDateModel = mongoose.models.DrHairClinicClosedDate || mongoose.model('DrHairClinicClosedDate', clinicClosedDateSchema);
+export const PatientActivityModel = mongoose.models.DrHairPatientActivity || mongoose.model('DrHairPatientActivity', patientActivitySchema);
+export const ProgressCheckInModel = mongoose.models.DrHairProgressCheckIn || mongoose.model('DrHairProgressCheckIn', progressCheckInSchema);
 export const ReviewModel = mongoose.models.DrHairReview || mongoose.model('DrHairReview', reviewSchema);
 export const DeviceTokenModel = mongoose.models.DrHairDeviceToken || mongoose.model('DrHairDeviceToken', deviceTokenSchema);
 export const VideoModel = mongoose.models.DrHairVideo || mongoose.model('DrHairVideo', videoSchema);
+export const RateLimitCounterModel = mongoose.models.DrHairRateLimitCounter || mongoose.model('DrHairRateLimitCounter', rateLimitCounterSchema);
 const CounterModel = mongoose.models.DrHairCounter || mongoose.model('DrHairCounter', counterSchema);
+
+export const nextUserId = async () => {
+  const highestUser = await UserModel.findOne().sort({ id: -1 }).select('id').lean();
+  if (highestUser?.id) {
+    await CounterModel.updateOne(
+      { _id: 'users' },
+      { $max: { seq: highestUser.id } },
+      { upsert: true },
+    );
+  }
+  return nextId('users');
+};
 
 export const nextId = async (counterName, offset = 0) => {
   const counter = await CounterModel.findOneAndUpdate(

@@ -1,4 +1,20 @@
 import { NotFoundError, BadRequestError } from '../../../shared/errors/index.js';
+import { config } from '../../../config/env.js';
+
+const ownedProfilePublicId = (url, userId) => {
+  if (typeof url !== 'string' || !config.cloudinary.cloudName) return null;
+  try {
+    const parsed = new URL(url);
+    const marker = `/${config.cloudinary.cloudName}/image/upload/`;
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'res.cloudinary.com' || !parsed.pathname.includes(marker)) return null;
+    const parts = parsed.pathname.split(marker)[1].split('/').filter(Boolean);
+    if (/^v\d+$/.test(parts[0] || '')) parts.shift();
+    const publicId = parts.join('/').replace(/\.[a-zA-Z0-9]+$/, '');
+    return publicId === `${config.cloudinary.imageFolder}/profiles/user-${userId}` ? publicId : null;
+  } catch {
+    return null;
+  }
+};
 
 export class UpdateProfilePictureUseCase {
   constructor({ userRepository, imageStorage }) {
@@ -17,6 +33,8 @@ export class UpdateProfilePictureUseCase {
     }
 
     if (action === 'remove') {
+      const publicId = ownedProfilePublicId(user.profile_url, userId);
+      if (publicId) await this.imageStorage.deleteImage(publicId);
       const updatedUser = await this.userRepository.updateAvatar(userId, null);
       return {
         profileUrl: null,

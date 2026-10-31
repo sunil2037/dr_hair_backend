@@ -5,15 +5,15 @@ let appPromise = null;
 
 async function getApp() {
   if (!appPromise) {
-    appPromise = (async () => {
-      try {
-        await connectDatabase();
-      } catch (err) {
-        console.warn('Database init warning:', err?.message || err);
-      }
+    const pending = (async () => {
+      await connectDatabase();
       const { app } = createApp();
       return app;
     })();
+    appPromise = pending.catch((error) => {
+      appPromise = null;
+      throw error;
+    });
   }
   return appPromise;
 }

@@ -3,10 +3,10 @@ export class GetReviewsUseCase {
     this.reviewRepository = reviewRepository;
   }
 
-  async execute({ review_type = 'doctor', status = 'active', page = 'home' } = {}) {
+  async execute({ review_type = 'doctor', page = 'home' } = {}) {
     const reviews = await this.reviewRepository.findFiltered({
       review_type,
-      status,
+      status: 'active',
       page,
     });
 

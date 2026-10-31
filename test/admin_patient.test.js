@@ -24,7 +24,14 @@ describe('Admin patient record', () => {
       userRepository: { findById: async (id) => Number(id) === 42 ? patient : null },
       hairTestRepository: { findByUserId: async () => [{ id: 501, reference_no: 'HT-TEST-0501', hair_loss_stage: 'Stage 2', userId: 42 }] },
       treatmentRepository: { findByTestIdentifier: async () => [{ reference_no: 'HT-TEST-0501', toResponse: () => ({ id: 1, treatment_name: 'Routine', duration: '8 weeks' }) }] },
-      clinicalReportRepository: { listByUserId: async () => [{ id: 'report-id', userId: 42, title: 'Lab report', file_name: 'lab.pdf', mime_type: 'application/pdf', format: 'pdf', bytes: 512, public_id: 'private/path/secret.pdf', asset_id: 'private-asset', uploaded_by: 'doctor@example.test', created_at: '2026-08-02T12:00:00.000Z' }] },
+      clinicalReportRepository: {
+        listByUserId: async () => [{ id: 'report-id', userId: 42, title: 'Lab report', file_name: 'lab.pdf', mime_type: 'application/pdf', format: 'pdf', bytes: 512, public_id: 'private/path/secret.pdf', asset_id: 'private-asset', uploaded_by: 'doctor@example.test', created_at: '2026-08-02T12:00:00.000Z' }],
+        listArchivedByUserId: async () => [],
+      },
+      appointmentRepository: { listByPatient: async () => [] },
+      patientActivityRepository: { listByPatient: async () => [], record: async () => {} },
+      progressCheckInRepository: { listByUserId: async () => [] },
+      imageStorage: { createPrivateDownloadUrl: () => 'https://example.com/dl' },
     });
     const result = await invoke(controller.getPatient, { params: { userId: '42' } });
     assert.equal(result.error, undefined);

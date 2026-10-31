@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index.js';
 import { TokenService } from '../../../shared/utils/token.service.js';
 import { config } from '../../../config/env.js';
@@ -19,25 +20,21 @@ export class VerifyOtpUseCase {
       throw new BadRequestError('Enter a valid email address or phone number.');
     }
     const cleanOtp = String(otp).trim();
+    if (!/^\d{6}$/.test(cleanOtp)) throw new BadRequestError('OTP must contain exactly 6 digits.');
 
-    const storedOtp = await this.otpRepository.findByLogin(cleanLogin);
+    const otpHash = createHmac('sha256', config.jwt.secret)
+      .update(`${cleanLogin}:${cleanOtp}`)
+      .digest('hex');
 
-    // Also accept default test OTP in development mode
-    const isTestOtpValid = config.isDev
-      && Boolean(config.otp.defaultOtp)
-      && cleanOtp === config.otp.defaultOtp;
-
-    if (!storedOtp && !isTestOtpValid) {
+    const verification = await this.otpRepository.verifyAndConsume(cleanLogin, otpHash, 5);
+    if (verification.status === 'locked') {
+      throw new UnauthorizedError('Too many incorrect OTP attempts. Request a new code.');
+    }
+    if (verification.status !== 'valid') {
+      if (verification.status === 'invalid') {
+        throw new UnauthorizedError(`Invalid OTP code. ${verification.attemptsRemaining} attempt(s) remaining.`);
+      }
       throw new UnauthorizedError('OTP expired or not requested. Please request a new OTP.');
-    }
-
-    if (storedOtp && !storedOtp.isValid(cleanOtp) && !isTestOtpValid) {
-      throw new UnauthorizedError('Invalid OTP code. Please enter the correct code.');
-    }
-
-    // Clean up used OTP
-    if (storedOtp) {
-      await this.otpRepository.delete(cleanLogin);
     }
 
     // Check if user exists in database

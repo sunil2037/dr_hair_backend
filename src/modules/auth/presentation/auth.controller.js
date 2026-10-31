@@ -14,9 +14,6 @@ export class AuthController {
 
       return sendSuccess(res, {
         message: result.message,
-        extra: {
-          type: result.type,
-        },
       });
     } catch (err) {
       next(err);

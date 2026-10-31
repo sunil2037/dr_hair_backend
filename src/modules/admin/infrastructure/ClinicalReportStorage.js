@@ -16,13 +16,13 @@ export async function uploadClinicalReport(file, userId) {
   return { id, public_id: result.public_id, asset_id: result.asset_id };
 }
 
-export function createClinicalReportDownloadUrl(publicId, format) {
+export function createClinicalReportDownloadUrl(publicId, format, { attachment = true } = {}) {
   const client = getCloudinaryClient();
   return client.utils.private_download_url(publicId, format, {
     resource_type: 'raw',
     type: 'authenticated',
     expires_at: Math.floor(Date.now() / 1000) + 60,
-    attachment: true,
+    attachment,
   });
 }
 

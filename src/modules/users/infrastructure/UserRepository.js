@@ -2,7 +2,9 @@ import { IUserRepository } from '../domain/IUserRepository.js';
 import { User } from '../domain/User.js';
 import { store } from '../../../shared/database/store.js';
 import { isMongoConnected } from '../../../shared/database/mongodb.js';
-import { UserModel, nextId } from '../../../shared/database/models.js';
+import { UserModel, nextUserId } from '../../../shared/database/models.js';
+import { formatPatientCode, resolvePatientId } from '../../../shared/utils/patient-code.js';
+import { ConflictError } from '../../../shared/errors/index.js';
 
 const toUser = (record) => {
   if (!record) return null;
@@ -14,10 +16,24 @@ const escapeRegex = (value) => value.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')
 
 export class UserRepository extends IUserRepository {
   async findById(id) {
-    const numericId = parseInt(id, 10);
-    if (isMongoConnected()) return toUser(await UserModel.findOne({ id: numericId }).lean());
+    const numericId = resolvePatientId(id);
+    if (!numericId) return null;
+    if (isMongoConnected()) {
+      const record = await UserModel.findOne({ id: numericId }).lean();
+      if (!record) return null;
+      if (!record.patient_code) {
+        record.patient_code = formatPatientCode(record.id);
+        await UserModel.updateOne(
+          { id: numericId, $or: [{ patient_code: { $exists: false } }, { patient_code: null }, { patient_code: '' }] },
+          { $set: { patient_code: record.patient_code } },
+        );
+      }
+      return toUser(record);
+    }
     const user = store.users.find((u) => u.id === numericId);
-    return user ? new User(user) : null;
+    if (!user) return null;
+    user.patient_code ||= formatPatientCode(user.id);
+    return new User(user);
   }
 
   async findByLogin(login) {
@@ -25,39 +41,82 @@ export class UserRepository extends IUserRepository {
     const clean = String(login).trim().toLowerCase();
     if (isMongoConnected()) {
       const filters = [{ email: clean }];
-      const digits = cleanPhone(clean);
+      const digits = clean.includes('@') ? '' : cleanPhone(clean);
       if (digits) filters.push({ phoneNormalized: digits });
-      return toUser(await UserModel.findOne({ $or: filters }).lean());
+      const record = await UserModel.findOne({ $or: filters }).select('id').lean();
+      return record ? this.findById(record.id) : (digits ? this.findByPhone(digits) : null);
     }
     const user = store.users.find(
       (u) =>
         (u.email && u.email.toLowerCase() === clean) ||
         (u.phone && u.phone.replace(/[^0-9]/g, '') === clean.replace(/[^0-9]/g, ''))
     );
-    return user ? new User(user) : null;
+    return user ? this.findById(user.id) : null;
   }
 
   async findByEmail(email) {
     if (!email) return null;
     const clean = cleanEmail(email);
-    if (isMongoConnected()) return toUser(await UserModel.findOne({ email: clean }).lean());
+    if (isMongoConnected()) {
+      const record = await UserModel.findOne({ email: clean }).select('id').lean();
+      return record ? this.findById(record.id) : null;
+    }
     const user = store.users.find((u) => u.email && u.email.toLowerCase() === clean);
-    return user ? new User(user) : null;
+    return user ? this.findById(user.id) : null;
   }
 
   async findByPhone(phone) {
     if (!phone) return null;
     const clean = cleanPhone(phone);
-    if (isMongoConnected()) return toUser(await UserModel.findOne({ phoneNormalized: clean }).lean());
+    if (isMongoConnected()) {
+      let record = await UserModel.findOne({ phoneNormalized: clean }).select('id').lean();
+      // Older Atlas records predate phoneNormalized. Fall back once, then
+      // backfill the normalized value so future lookups use the indexed path.
+      if (!record) {
+        const legacy = await UserModel.find({
+          phone: { $exists: true, $ne: '' },
+          $or: [{ phoneNormalized: { $exists: false } }, { phoneNormalized: null }, { phoneNormalized: '' }],
+        })
+          .select('id phone')
+          .lean();
+        const matches = legacy.filter((item) => cleanPhone(item.phone) === clean);
+        if (matches.length > 1) throw new ConflictError('This phone number matches multiple legacy accounts. Resolve the duplicate accounts before signing in.');
+        if (matches.length === 1) {
+          record = matches[0];
+          await UserModel.updateOne(
+            { id: record.id, $or: [{ phoneNormalized: { $exists: false } }, { phoneNormalized: null }, { phoneNormalized: '' }] },
+            { $set: { phoneNormalized: clean } },
+          ).catch(() => {});
+        }
+      }
+      return record ? this.findById(record.id) : null;
+    }
     const user = store.users.find((u) => u.phone && u.phone.replace(/[^0-9]/g, '') === clean);
-    return user ? new User(user) : null;
+    return user ? this.findById(user.id) : null;
+  }
+
+  async findByIds(ids = []) {
+    const numericIds = [...new Set(ids.map((id) => Number(id)).filter(Number.isSafeInteger))];
+    if (!numericIds.length) return [];
+    if (isMongoConnected()) {
+      const records = await UserModel.find({ id: { $in: numericIds } })
+        .select('id patient_code name email phone age gender city occupation platform profile_url role created_at updated_at')
+        .lean();
+      return records.map((record) => {
+        record.patient_code ||= formatPatientCode(record.id);
+        return toUser(record);
+      });
+    }
+    return (await Promise.all(numericIds.map((id) => this.findById(id)))).filter(Boolean);
   }
 
   async create(userData) {
     if (isMongoConnected()) {
+      const id = await nextUserId();
       return toUser(
         await UserModel.create({
-          id: await nextId('users'),
+          id,
+          patient_code: formatPatientCode(id),
           name: userData.name,
           email: cleanEmail(userData.email) || undefined,
           phone: userData.phone || undefined,
@@ -77,6 +136,7 @@ export class UserRepository extends IUserRepository {
     const newId = store.users.length > 0 ? Math.max(...store.users.map((u) => u.id)) + 1 : 1;
     const newUserRecord = {
       id: newId,
+      patient_code: formatPatientCode(newId),
       name: userData.name,
       email: userData.email,
       phone: userData.phone,
@@ -86,6 +146,7 @@ export class UserRepository extends IUserRepository {
       occupation: userData.occupation,
       platform: userData.platform || 'app',
       profile_url: userData.profile_url || null,
+      role: 'user',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -95,7 +156,8 @@ export class UserRepository extends IUserRepository {
   }
 
   async update(id, updateData) {
-    const numericId = parseInt(id, 10);
+    const numericId = resolvePatientId(id);
+    if (!numericId) return null;
     if (isMongoConnected()) {
       const normalized = { ...updateData, updated_at: new Date() };
       if ('email' in normalized) normalized.email = cleanEmail(normalized.email) || undefined;
@@ -131,25 +193,44 @@ export class UserRepository extends IUserRepository {
       const filter = { role: 'user' };
       if (cleanSearch) {
         const expression = new RegExp(escapeRegex(cleanSearch), 'i');
-        filter.$or = [{ name: expression }, { email: expression }, { phone: expression }];
+        const exactPatientId = resolvePatientId(cleanSearch);
+        filter.$or = [
+          { name: expression },
+          { email: expression },
+          { phone: expression },
+          { patient_code: expression },
+          ...(exactPatientId ? [{ id: exactPatientId }] : []),
+        ];
       }
       const [records, total] = await Promise.all([
         UserModel.find(filter)
-          .select('id name email phone age gender city occupation platform profile_url role created_at')
+          .select('id patient_code name email phone age gender city occupation platform profile_url role created_at')
           .sort({ created_at: -1, id: -1 })
           .skip((safePage - 1) * safeLimit)
           .limit(safeLimit)
           .lean(),
         UserModel.countDocuments(filter),
       ]);
+      const withoutCode = records.filter((record) => !record.patient_code);
+      if (withoutCode.length) {
+        await UserModel.bulkWrite(withoutCode.map((record) => ({
+          updateOne: {
+            filter: { id: record.id, $or: [{ patient_code: { $exists: false } }, { patient_code: null }, { patient_code: '' }] },
+            update: { $set: { patient_code: formatPatientCode(record.id) } },
+          },
+        })));
+        withoutCode.forEach((record) => { record.patient_code = formatPatientCode(record.id); });
+      }
       return { items: records.map(toUser), total, page: safePage, limit: safeLimit };
     }
     const query = cleanSearch.toLowerCase();
     const matched = store.users.filter((user) =>
       (user.role || 'user') === 'user'
-      && (!query || [user.name, user.email, user.phone].some((value) => String(value || '').toLowerCase().includes(query))),
+      && (!query || [user.name, user.email, user.phone, user.patient_code || formatPatientCode(user.id)].some((value) => String(value || '').toLowerCase().includes(query))
+        || resolvePatientId(cleanSearch) === user.id),
     );
     const start = (safePage - 1) * safeLimit;
+    matched.forEach((user) => { user.patient_code ||= formatPatientCode(user.id); });
     return {
       items: matched.slice(start, start + safeLimit).map((record) => new User(record)),
       total: matched.length,

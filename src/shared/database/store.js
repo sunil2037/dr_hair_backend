@@ -21,7 +21,7 @@ export const store = {
     },
   ],
 
-  otps: new Map(), // key: login (phone/email), value: { otp, expiresAt, type }
+  otps: new Map(), // key: login (phone/email), value: { otpHash, expiresAt, type }
 
   hairTests: [
     {
@@ -90,6 +90,10 @@ export const store = {
   ],
 
   clinicalReports: [],
+  appointments: [],
+  clinicClosedDates: [],
+  patientActivity: [],
+  progressCheckIns: [],
 
   reviews: [
     {

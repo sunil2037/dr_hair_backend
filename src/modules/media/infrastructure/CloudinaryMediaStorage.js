@@ -1,11 +1,38 @@
 import { Transform } from 'node:stream';
-import { BadRequestError, PayloadTooLargeError } from '../../../shared/errors/index.js';
+import { BadRequestError, NotFoundError, PayloadTooLargeError } from '../../../shared/errors/index.js';
 import { config } from '../../../config/env.js';
 import { getCloudinaryClient } from './CloudinaryVideoStorage.js';
 
 const mediaPurposes = new Set(['general', 'profile', 'assessment', 'progress', 'content']);
 
 export class CloudinaryMediaStorage {
+  async deleteOwnedOrphan({ publicId, resourceType, ownerId, isAdmin }) {
+    if (!['image', 'video'].includes(resourceType) || typeof publicId !== 'string' || !publicId.trim() || publicId.length > 240 || publicId.includes('..')) {
+      throw new BadRequestError('Provide a valid uploaded media public_id and resource_type.');
+    }
+    const root = resourceType === 'video' ? config.cloudinary.videoFolder : config.cloudinary.imageFolder;
+    const owner = isAdmin ? 'admin' : `user-${Number(ownerId)}`;
+    const expectedPrefix = `${String(root).replace(/^\/+|\/+$/g, '')}/${owner}/general/`;
+    if (!publicId.startsWith(expectedPrefix)) {
+      throw new BadRequestError('Only unattached media from your general upload folder can be deleted here.');
+    }
+
+    const cloudinary = getCloudinaryClient();
+    let asset;
+    try {
+      asset = await cloudinary.api.resource(publicId, { resource_type: resourceType, type: 'upload' });
+    } catch (error) {
+      if (error?.http_code === 404 || error?.error?.http_code === 404) throw new NotFoundError('Uploaded media was not found.');
+      throw error;
+    }
+    if (asset.public_id !== publicId || asset.type !== 'upload') {
+      throw new BadRequestError('The uploaded asset does not match the requested media.');
+    }
+    const deleted = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType, type: 'upload', invalidate: true });
+    if (deleted.result !== 'ok') throw new Error('Cloudinary did not confirm media deletion.');
+    return deleted;
+  }
+
   _handleFile(req, file, callback) {
     const resourceType = file.mimetype.startsWith('video/') ? 'video' : 'image';
     const purposeHeader = req.headers['x-media-purpose'];
@@ -16,6 +43,10 @@ export class CloudinaryMediaStorage {
     }
     if (purpose === 'profile' && resourceType !== 'image') {
       callback(new BadRequestError('Profile media must be an image.'));
+      return;
+    }
+    if (purpose === 'progress' && resourceType !== 'image') {
+      callback(new BadRequestError('Progress check-ins only accept images.'));
       return;
     }
 
@@ -42,9 +73,11 @@ export class CloudinaryMediaStorage {
 
     try {
       const cloudinary = getCloudinaryClient();
+      const privateClinicalImage = resourceType === 'image' && ['assessment', 'progress'].includes(purpose);
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           resource_type: resourceType,
+          ...(privateClinicalImage ? { type: 'authenticated' } : {}),
           folder,
           overwrite: false,
           unique_filename: true,
@@ -53,7 +86,17 @@ export class CloudinaryMediaStorage {
           if (error) return finish(error);
           finish(null, {
             publicId: result.public_id,
-            secureUrl: result.secure_url,
+            secureUrl: privateClinicalImage
+              ? cloudinary.utils.private_download_url(result.public_id, result.format, {
+                resource_type: 'image',
+                type: 'authenticated',
+                expires_at: Math.floor(Date.now() / 1000) + 300,
+                attachment: false,
+              })
+              : result.secure_url,
+            storageUrl: result.secure_url,
+            purpose,
+            deliveryType: privateClinicalImage ? 'authenticated' : 'upload',
             resourceType,
             format: result.format,
             bytes: result.bytes,

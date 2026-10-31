@@ -1,6 +1,7 @@
 import { AppError } from '../errors/index.js';
 import { logger } from '../utils/logger.js';
 import { sendError } from '../utils/response.js';
+import { config } from '../../config/env.js';
 
 export const errorHandler = (err, req, res, next) => {
   logger.error(`${req.method} ${req.url} - Error: ${err.message}`, err.stack);
@@ -22,7 +23,7 @@ export const errorHandler = (err, req, res, next) => {
   }
 
   // Unhandled error in development vs production
-  const message = process.env.NODE_ENV === 'production' 
+  const message = config.env === 'production'
     ? 'Internal Server Error' 
     : err.message || 'An unexpected error occurred';
 

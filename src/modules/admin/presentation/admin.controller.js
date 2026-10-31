@@ -1,6 +1,8 @@
-import { BadRequestError, NotFoundError } from '../../../shared/errors/index.js';
+import { AppError, BadRequestError, NotFoundError } from '../../../shared/errors/index.js';
 import { sendSuccess } from '../../../shared/utils/response.js';
+import { config } from '../../../config/env.js';
 import { uploadClinicalReport, createClinicalReportDownloadUrl, deleteClinicalReport } from '../infrastructure/ClinicalReportStorage.js';
+import { progressCheckInResponse } from '../../../shared/utils/progress-checkin-response.js';
 
 const reportResponse = (report) => ({
   id: report.id,
@@ -11,11 +13,23 @@ const reportResponse = (report) => ({
   format: report.format,
   bytes: report.bytes,
   uploaded_by: report.uploaded_by,
+  visibility: report.visibility === 'Shared' ? 'Shared' : 'Private',
+  shared_at: report.shared_at || null,
+  visibility_history: (report.visibility_history || []).map((event) => ({
+    action: event.action || (event.visibility === 'Shared' ? 'shared' : 'hidden'),
+    visibility: event.visibility === 'Shared' ? 'Shared' : 'Private',
+    changed_by: event.changed_by || '',
+    changed_at: event.changed_at || null,
+    patient_consent_confirmed: event.patient_consent_confirmed === true,
+  })),
+  deleted_at: report.deleted_at || null,
+  purge_after: report.purge_after || null,
+  deleted_by: report.deleted_by || '',
   created_at: report.created_at,
 });
 
 export class AdminController {
-  constructor({ userRepository, hairTestRepository, treatmentRepository, clinicalReportRepository, reviewRepository, adminAccountRepository, createAdminAccountUseCase }) {
+  constructor({ userRepository, hairTestRepository, treatmentRepository, clinicalReportRepository, reviewRepository, adminAccountRepository, createAdminAccountUseCase, imageStorage, appointmentRepository, patientActivityRepository, progressCheckInRepository }) {
     this.userRepository = userRepository;
     this.hairTestRepository = hairTestRepository;
     this.treatmentRepository = treatmentRepository;
@@ -23,6 +37,10 @@ export class AdminController {
     this.reviewRepository = reviewRepository;
     this.adminAccountRepository = adminAccountRepository;
     this.createAdminAccountUseCase = createAdminAccountUseCase;
+    this.imageStorage = imageStorage;
+    this.appointmentRepository = appointmentRepository;
+    this.patientActivityRepository = patientActivityRepository;
+    this.progressCheckInRepository = progressCheckInRepository;
   }
 
   getCurrentAdmin = async (req, res, next) => {
@@ -98,18 +116,47 @@ export class AdminController {
       const treatmentsByAssessment = await Promise.all(assessments.map((assessment) =>
         this.treatmentRepository.findByTestIdentifier(assessment.reference_no, { userId: patient.id }),
       ));
-      const reports = await this.clinicalReportRepository.listByUserId(patient.id);
+      const [reports, archivedReports, appointments, activity, progressCheckIns] = await Promise.all([
+        this.clinicalReportRepository.listByUserId(patient.id),
+        this.clinicalReportRepository.listArchivedByUserId(patient.id),
+        this.appointmentRepository.listByPatient(patient.id),
+        this.patientActivityRepository.listByPatient(patient.id),
+        this.progressCheckInRepository.listByUserId(patient.id),
+      ]);
+      const safeAssessments = await Promise.all(assessments.map(async (assessment) => ({
+        ...assessment,
+        scalp_photos: await Promise.all((assessment.scalp_photos || []).filter((photo) => !photo.deleted_at).map(async (photo) => ({
+          ...photo,
+          url: photo.delivery_type === 'authenticated'
+            ? this.imageStorage.createPrivateDownloadUrl(photo.file_name, photo.format)
+            : photo.url,
+          url_expires_in_seconds: photo.delivery_type === 'authenticated' ? 300 : null,
+        }))),
+      })));
       return sendSuccess(res, {
         data: {
-          patient: { ...patient.toPublicProfile(), created_at: patient.created_at },
-          assessments,
+          patient: { ...patient.toPublicProfile(), created_at: patient.created_at, updated_at: patient.updated_at },
+          assessments: safeAssessments,
           treatments: treatmentsByAssessment.flat().map((treatment) => ({ ...treatment.toResponse(), reference_no: treatment.reference_no })),
           reports: reports.map(reportResponse),
+          archived_reports: archivedReports.map(reportResponse),
+          appointments,
+          activity,
+          progress_checkins: await Promise.all(progressCheckIns.map((item) => progressCheckInResponse(item, this.imageStorage))),
         },
       });
     } catch (error) {
       next(error);
     }
+  };
+
+  getPatientArchive = async (req, res, next) => {
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      const reports = await this.clinicalReportRepository.listArchivedByUserId(patient.id);
+      return sendSuccess(res, { data: { reports: reports.map(reportResponse) } });
+    } catch (error) { next(error); }
   };
 
   updatePatient = async (req, res, next) => {
@@ -137,7 +184,8 @@ export class AdminController {
         update[field] = normalized || (field === 'name' ? '' : null);
       }
       const updated = await this.userRepository.update(patientId, update);
-      return sendSuccess(res, { message: 'Patient profile updated.', data: updated.toPublicProfile() });
+      await this.patientActivityRepository?.record({ userId: current.id, patientCode: current.patient_code, type: 'profile', title: 'Patient profile updated', summary: Object.keys(update).join(', '), actor: String(req.user?.email || req.user?.login || 'Super Admin') });
+      return sendSuccess(res, { message: 'Patient profile updated.', data: { ...updated.toPublicProfile(), updated_at: updated.updated_at } });
     } catch (error) {
       next(error);
     }
@@ -159,6 +207,7 @@ export class AdminController {
       };
       if (!signatures[req.file.mimetype]) throw new BadRequestError('The report file content does not match its PDF or image type.');
       uploadedAsset = await uploadClinicalReport(req.file, patient.id);
+      const uploadedBy = String(req.user?.email || req.user?.login || 'Super Admin');
       const report = await this.clinicalReportRepository.create({
         id: uploadedAsset.id,
         userId: patient.id,
@@ -168,8 +217,12 @@ export class AdminController {
         format: ({ 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[req.file.mimetype],
         bytes: req.file.size,
         public_id: uploadedAsset.public_id,
-        uploaded_by: String(req.user?.email || req.user?.login || 'Super Admin'),
+        uploaded_by: uploadedBy,
+        visibility: 'Private',
+        shared_at: null,
+        visibility_history: [{ action: 'uploaded', visibility: 'Private', changed_by: uploadedBy, changed_at: new Date() }],
       });
+      await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'report', title: 'Report uploaded', summary: title, actor: uploadedBy, metadata: { report_id: report.id } });
       return sendSuccess(res, { message: 'Private patient report uploaded.', data: reportResponse(report), statusCode: 201 });
     } catch (error) {
       if (uploadedAsset?.public_id) {
@@ -179,15 +232,109 @@ export class AdminController {
     }
   };
 
+  updatePatientReportVisibility = async (req, res, next) => {
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      const visibility = req.body?.visibility;
+      if (!['Private', 'Shared'].includes(visibility)) throw new BadRequestError('visibility must be either Private or Shared.');
+      if (visibility === 'Shared' && req.body?.patient_consent_confirmed !== true) throw new BadRequestError('Confirm that the patient agreed to view this report before sharing it.');
+      const changedBy = String(req.user?.email || req.user?.login || 'Super Admin');
+      const report = await this.clinicalReportRepository.updateVisibility(patient.id, req.params.reportId, visibility, changedBy, visibility === 'Shared');
+      if (!report) throw new NotFoundError('Patient report not found.');
+      await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'report', title: visibility === 'Shared' ? 'Report shared with patient' : 'Report hidden from patient', summary: report.title, actor: changedBy, metadata: { report_id: report.id, patient_consent_confirmed: visibility === 'Shared' } });
+      return sendSuccess(res, {
+        message: visibility === 'Shared' ? 'Report is now visible to the patient.' : 'Report is now hidden from the patient.',
+        data: reportResponse(report),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deletePatientReport = async (req, res, next) => {
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      const report = await this.clinicalReportRepository.findByUserIdAndId(patient.id, req.params.reportId);
+      if (!report) throw new NotFoundError('Patient report not found.');
+
+      const actor = String(req.user?.email || req.user?.login || 'Super Admin');
+      const archived = await this.clinicalReportRepository.archiveByUserIdAndId(patient.id, report.id, actor);
+      if (!archived) throw new NotFoundError('Patient report was already archived. Refresh the patient record.');
+      await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'report', title: 'Report archived for 30 days', summary: report.title, actor, metadata: { report_id: report.id, purge_after: archived.purge_after } });
+
+      return sendSuccess(res, {
+        message: 'Report moved to the recovery archive for 30 days.',
+        data: reportResponse(archived),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deletePatientScalpPhoto = async (req, res, next) => {
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      const assessmentId = Number(req.params.assessmentId);
+      const photoIndex = Number(req.params.photoIndex);
+      if (!Number.isSafeInteger(assessmentId) || assessmentId < 1 || !Number.isInteger(photoIndex) || photoIndex < 0) {
+        throw new BadRequestError('A valid assessment and photo index are required.');
+      }
+      const assessment = await this.hairTestRepository.findByIdAndUserId(assessmentId, patient.id);
+      const photo = assessment?.scalp_photos?.[photoIndex];
+      if (!photo || typeof photo.url !== 'string' || typeof photo.file_name !== 'string') throw new NotFoundError('Scalp photo not found.');
+
+      const allowedFolders = [
+        `${config.cloudinary.imageFolder}/user-${patient.id}/assessment/`,
+        `${config.cloudinary.imageFolder}/scalp/`,
+      ];
+      if (!allowedFolders.some((folder) => photo.file_name.startsWith(folder)) || photo.file_name.includes('..')) {
+        throw new BadRequestError('This scalp photo is not stored in an approved patient-upload folder.');
+      }
+
+      const removed = await this.hairTestRepository.removeScalpPhoto(patient.id, assessmentId, photoIndex, photo.url);
+      if (!removed) throw new NotFoundError('Scalp photo was already removed. Refresh the patient record.');
+      try {
+        await this.imageStorage.deleteImage(photo.file_name, { deliveryType: photo.delivery_type || 'upload' });
+      } catch {
+        await this.hairTestRepository.restoreScalpPhoto(patient.id, assessmentId, photoIndex, removed);
+        throw new AppError('The photo could not be deleted from storage. The assessment reference was restored; retry later.', 503);
+      }
+      const actor = String(req.user?.email || req.user?.login || 'Super Admin');
+      await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'assessment', title: 'Scalp photo permanently deleted', summary: assessment.reference_no || `Assessment ${assessmentId}`, actor, metadata: { assessment_id: assessmentId, file_name: photo.file_name } });
+      return sendSuccess(res, {
+        message: 'Scalp photo and database reference permanently deleted.',
+        data: { assessment_id: assessmentId, file_name: photo.file_name },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  restorePatientReport = async (req, res, next) => {
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      const report = await this.clinicalReportRepository.restoreByUserIdAndId(patient.id, req.params.reportId);
+      if (!report) throw new NotFoundError('Archived report was not found or its 30-day recovery window has ended.');
+      const actor = String(req.user?.email || req.user?.login || 'Super Admin');
+      await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'report', title: 'Archived report restored', summary: report.title, actor, metadata: { report_id: report.id } });
+      return sendSuccess(res, { message: 'Report restored to the patient record as private.', data: reportResponse(report) });
+    } catch (error) { next(error); }
+  };
+
   downloadPatientReport = async (req, res, next) => {
     try {
       const patient = await this.userRepository.findById(req.params.userId);
       if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
       const report = await this.clinicalReportRepository.findByUserIdAndId(patient.id, req.params.reportId);
       if (!report) throw new NotFoundError('Patient report not found.');
+      const inline = req.query?.inline === 'true';
       return sendSuccess(res, {
         data: {
-          url: createClinicalReportDownloadUrl(report.public_id, report.format),
+          url: createClinicalReportDownloadUrl(report.public_id, report.format, { attachment: !inline }),
           expires_in_seconds: 60,
         },
       });
@@ -202,7 +349,17 @@ export class AdminController {
         page: req.query.page,
         limit: req.query.limit,
       });
-      return sendSuccess(res, { data: result });
+      const items = await Promise.all(result.items.map(async (assessment) => ({
+        ...assessment,
+        scalp_photos: await Promise.all((assessment.scalp_photos || []).filter((photo) => !photo.deleted_at).map(async (photo) => ({
+          ...photo,
+          url: photo.delivery_type === 'authenticated'
+            ? this.imageStorage.createPrivateDownloadUrl(photo.file_name, photo.format)
+            : photo.url,
+          url_expires_in_seconds: photo.delivery_type === 'authenticated' ? 300 : null,
+        }))),
+      })));
+      return sendSuccess(res, { data: { ...result, items } });
     } catch (error) {
       next(error);
     }
@@ -307,6 +464,7 @@ export class AdminController {
         diet_meals: normalizedDietMeals,
         ...(date ? { date } : {}),
       });
+      await this.patientActivityRepository?.record({ userId: hairTest.userId, type: 'care_plan', title: 'Care plan added', summary: treatment_name.trim(), actor: String(req.user?.email || req.user?.login || 'Super Admin'), metadata: { reference_no: hairTest.reference_no } });
       return sendSuccess(res, {
         message: 'Treatment plan created.',
         data: { ...treatment.toResponse(), reference_no: treatment.reference_no },

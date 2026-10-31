@@ -8,10 +8,9 @@ export class ReviewController {
 
   getReviews = async (req, res, next) => {
     try {
-      const { review_type, status, page } = req.body || {};
+      const { review_type, page } = req.body || {};
       const data = await this.getReviewsUseCase.execute({
         review_type,
-        status,
         page,
       });
 

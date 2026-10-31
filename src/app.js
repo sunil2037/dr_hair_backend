@@ -43,10 +43,11 @@ export const createApp = () => {
   // 2. System & Health Check Endpoints
   app.get('/', (req, res) => {
     const db = databaseStatus();
-    res.status(200).json({
+    const healthy = config.env !== 'production' || db === 'connected';
+    res.status(healthy ? 200 : 503).json({
       name: 'Dr. Hair Backend API',
       version: '1.0.0',
-      status: 'operational',
+      status: healthy ? 'operational' : 'unavailable',
       database: db,
       architecture: 'Modular Monolith + Clean Architecture',
       documentation: '/api/docs',
@@ -67,8 +68,9 @@ export const createApp = () => {
 
   app.get('/health', (req, res) => {
     const db = databaseStatus();
-    res.status(200).json({
-      status: 'ok',
+    const healthy = config.env !== 'production' || db === 'connected';
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'ok' : 'unavailable',
       database: db,
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
@@ -121,6 +123,7 @@ export const createApp = () => {
   app.use('/api/v1/media', container.routers.mediaRouter);
   app.use('/api/v1/videos', container.routers.videoPublicRouter);
   app.use('/api/v1/admin', container.routers.adminRouter);
+  app.use('/api/v1/patient', container.routers.patientClinicalRouter);
 
   // 5. 404 Route Not Found Handler
   app.use((req, res, next) => {
