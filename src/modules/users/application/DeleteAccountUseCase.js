@@ -26,3 +26,4 @@ export class DeleteAccountUseCase {
     };
   }
 }
+

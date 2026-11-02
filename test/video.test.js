@@ -95,4 +95,38 @@ describe('Admin video content', () => {
     assert.equal(res.statusCode, 200);
     assert.match(res.body.message, /deleted successfully/i);
   });
+
+  it('verifies real repository chunk loading: page 1 has_more true, page 2 has_more false', async () => {
+    const { VideoRepository } = await import('../src/modules/media/infrastructure/VideoRepository.js');
+    const repo = new VideoRepository();
+
+    const chunk1 = await repo.listPublished({ page: 1, limit: 10, placement: 'reels' });
+    assert.equal(chunk1.page, 1);
+    assert.equal(chunk1.limit, 10);
+    assert.equal(chunk1.items.length, 10);
+    assert.equal(chunk1.has_more, true);
+    assert.equal(chunk1.total >= 15, true);
+
+    const chunk2 = await repo.listPublished({ page: 2, limit: 10, placement: 'reels' });
+    assert.equal(chunk2.page, 2);
+    assert.equal(chunk2.items.length > 0, true);
+    assert.equal(chunk2.has_more, false);
+
+    // Verify no overlap between chunk 1 and chunk 2
+    const chunk1Ids = new Set(chunk1.items.map((v) => v.public_id));
+    for (const item of chunk2.items) {
+      assert.equal(chunk1Ids.has(item.public_id), false);
+    }
+  });
+
+  it('verifies real repository category filter with chunk loading', async () => {
+    const { VideoRepository } = await import('../src/modules/media/infrastructure/VideoRepository.js');
+    const repo = new VideoRepository();
+
+    const dandruffVideos = await repo.listPublished({ page: 1, limit: 10, category: 'Dandruff', placement: 'reels' });
+    assert.equal(dandruffVideos.items.length >= 4, true);
+    for (const video of dandruffVideos.items) {
+      assert.match(video.category, /dandruff/i);
+    }
+  });
 });

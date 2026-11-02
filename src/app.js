@@ -73,6 +73,7 @@ export const createApp = () => {
         hairTest: ['/HairTest/submit_form', '/HairTest/hair_test', '/HairTest/get_treatment_history/:reference_no'],
         review: ['/Review/review_get'],
         videos: ['/api/v1/videos'],
+        products: ['/api/v1/products', '/api/v1/products/:id'],
         media: ['/api/v1/media/upload'],
         notifications: ['/api/v1/notifications/device-tokens'],
         admin: ['/api/v1/admin/users', '/api/v1/admin/hair-tests', '/api/v1/admin/treatments', '/api/v1/admin/reviews'],
@@ -194,6 +195,11 @@ export const createApp = () => {
   app.use('/api/v1/notifications', container.routers.notificationRouter);
   app.use('/api/v1/media', container.routers.mediaRouter);
   app.use('/api/v1/videos', container.routers.videoPublicRouter);
+  app.use('/api/v1/products', container.routers.productPublicRouter);
+  app.use('/products', container.routers.productPublicRouter);
+  app.use('/api/v1/admin/products', container.routers.productAdminRouter);
+  app.use('/api/v1/cart', container.routers.cartRouter);
+  app.use('/cart', container.routers.cartRouter);
   app.use('/api/v1/admin', container.routers.adminRouter);
   app.use('/api/v1/patient', container.routers.patientClinicalRouter);
 

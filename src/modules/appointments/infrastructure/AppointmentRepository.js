@@ -13,6 +13,11 @@ export class AppointmentRepository {
     const year = new Date(data.starts_at).getUTCFullYear();
     const now = new Date();
     const record = {
+      consultation_fee: data.consultation_fee != null ? Number(data.consultation_fee) : 500,
+      payment_status: data.payment_status || 'Pending',
+      payment_method: data.payment_method || 'UPI',
+      payment_transaction_id: data.payment_transaction_id || '',
+      payment_time: data.payment_time ? new Date(data.payment_time) : (data.payment_status === 'Paid' ? now : null),
       ...data,
       id: `APT-${year}-${String(sequence).padStart(4, '0')}`,
       opd_token: data.opd_token || `OPD-${String(sequence).padStart(4, '0')}`,

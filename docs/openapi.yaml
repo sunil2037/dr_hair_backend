@@ -18,6 +18,7 @@ tags:
   - name: Reviews
   - name: Notifications
   - name: Videos
+  - name: Commerce
   - name: Admin
   - name: Media
   - name: Patient app
@@ -555,6 +556,77 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/ServerError' }
 
+  /api/v1/patient/appointments:
+    get:
+      tags: [Appointments]
+      summary: List in-clinic appointments for the authenticated patient
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Patient appointments list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { type: object }
+    post:
+      tags: [Appointments]
+      summary: Book an in-clinic appointment with consultation fee payment details
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [starts_at, reason]
+              properties:
+                starts_at: { type: string, format: date-time, example: '2026-11-10T10:30:00+05:30' }
+                reason: { type: string, example: 'Hair loss consultation & trichoscopy' }
+                consultation_fee: { type: number, default: 500, example: 500 }
+                payment_method: { type: string, enum: [UPI, Card, Netbanking, Cash at Clinic], example: UPI }
+                payment_status: { type: string, enum: [Paid, Pending], default: Paid, example: Paid }
+                payment_transaction_id: { type: string, example: 'UPI-TXN-123456' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Slot conflict }
+
+  /api/v1/patient/appointments/{appointmentId}:
+    patch:
+      tags: [Appointments]
+      summary: Reschedule or cancel patient appointment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [cancel, reschedule] }
+                starts_at: { type: string, format: date-time }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/v1/reviews/review_get:
     get:
       tags: [Reviews]
@@ -642,6 +714,167 @@ paths:
           schema: { type: string, enum: [home, reels] }
       responses:
         '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/products:
+    get:
+      tags: [Commerce]
+      summary: List active clinic products and treatments
+      parameters:
+        - name: category
+          in: query
+          description: Filter products by category or formulation type
+          schema: { type: string }
+        - name: root_cause
+          in: query
+          description: Filter products by clinical root cause (Hair, Dandruff, Gut, Stress, Thyroid, PCOS, Hormone)
+          schema: { type: string }
+        - name: search
+          in: query
+          description: Free text search across title, subtitle, ingredients, and SKU
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/products/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Commerce]
+      summary: Read detailed clinical product specifications, supply plans, benefits, and ingredients
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/cart:
+    get:
+      tags: [Commerce]
+      summary: Get active shopping cart with item lines, discounts, and order totals
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    delete:
+      tags: [Commerce]
+      summary: Clear all items from active cart
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/cart/items:
+    post:
+      tags: [Commerce]
+      summary: Add product and supply plan to shopping cart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId]
+              properties:
+                productId: { type: string }
+                planTitle: { type: string }
+                quantity: { type: integer, default: 1 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/cart/items/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Commerce]
+      summary: Update quantity of a cart line item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: { type: integer }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    delete:
+      tags: [Commerce]
+      summary: Remove a specific item line from the cart
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/cart/apply-reward:
+    post:
+      tags: [Commerce]
+      summary: Apply coupon reward code to shopping cart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/admin/products:
+    get:
+      tags: [Admin]
+      summary: List all catalog products including drafts and archived items
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Admin]
+      summary: Create a new clinical product in the catalog
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, category, price]
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/admin/products/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Admin]
+      summary: Update product details, inventory stock, or pricing
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin]
+      summary: Delete or archive a catalog product
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/admin/users:
     get:

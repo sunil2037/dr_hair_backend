@@ -55,6 +55,22 @@ describe('Users / Admin Module - Clean Architecture Tests', () => {
     assert.equal(result.user.name, 'Sunil Sharma Updated');
   });
 
+  it('should update age and gender for clinical consultation', async () => {
+    const result = await updateProfileUseCase.execute({
+      userId: 12,
+      name: 'Sunil Sharma',
+      age: 29,
+      gender: 'Male',
+      city: 'Delhi',
+      verifiedLogin: '9876543210',
+    });
+
+    assert.equal(result.message, 'Profile updated successfully.');
+    assert.equal(result.user.age, 29);
+    assert.equal(result.user.gender, 'Male');
+    assert.equal(result.user.city, 'Delhi');
+  });
+
   it('should update user profile avatar', async () => {
     updateProfilePictureUseCase.imageStorage = {
       uploadImage: async () => ({ secureUrl: 'uploads/profiles/custom_avatar_123.jpg' }),

@@ -394,3 +394,49 @@ Authenticates clinical or super admins with email and password.
   }
 }
 ```
+
+---
+
+## 11. In-Clinic Appointments & Consultation Fee Payment
+
+### `POST /api/v1/patient/appointments`
+Books an in-clinic OPD consultation slot with payment details.
+- **Headers:** `Authorization: Bearer <token>`
+- **Body (`application/json`):**
+```json
+{
+  "starts_at": "2026-11-10T10:30:00+05:30",
+  "reason": "Crown hair thinning consultation",
+  "consultation_fee": 500,
+  "payment_method": "UPI",
+  "payment_status": "Paid",
+  "payment_transaction_id": "UPI-TXN-99887766"
+}
+```
+- **Response (`201 Created`):**
+```json
+{
+  "status": "success",
+  "message": "Appointment request sent to the clinic.",
+  "data": {
+    "id": "APT-2026-0014",
+    "opd_token": "OPD-0014",
+    "customer": "Rohit Verma",
+    "startsAt": "2026-11-10T05:00:00.000Z",
+    "date": "10 Nov 2026 · 10:30 am",
+    "status": "Requested",
+    "consultationFee": 500,
+    "paymentStatus": "Paid",
+    "paymentMethod": "UPI",
+    "paymentTransactionId": "UPI-TXN-99887766"
+  }
+}
+```
+
+### `GET /api/v1/patient/appointments`
+Returns all scheduled and past clinic appointments for the authenticated patient with OPD token and payment status.
+- **Headers:** `Authorization: Bearer <token>`
+
+### `PATCH /api/v1/patient/appointments/:appointmentId`
+Reschedules (`action: "reschedule"`, `starts_at`) or cancels (`action: "cancel"`) an existing appointment.
+- **Headers:** `Authorization: Bearer <token>`

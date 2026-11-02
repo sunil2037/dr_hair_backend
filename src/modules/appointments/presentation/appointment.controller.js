@@ -65,6 +65,11 @@ export class AppointmentController {
       room: appointment.room,
       tokenNumber: appointment.opd_token,
       opdStatus: appointment.status,
+      consultationFee: appointment.consultation_fee != null ? Number(appointment.consultation_fee) : 500,
+      paymentStatus: appointment.payment_status || 'Pending',
+      paymentMethod: appointment.payment_method || 'UPI',
+      paymentTransactionId: appointment.payment_transaction_id || '',
+      paymentTime: appointment.payment_time ? new Date(appointment.payment_time).toISOString() : null,
       _clinicHour: hour,
     };
   };
@@ -91,12 +96,39 @@ export class AppointmentController {
       await this.validateSlot(starts_at, { patientRequest: true });
       const patient = await this.userRepository.findById(req.user.id);
       const actor = patient?.patient_code || 'Patient';
+
+      const consultation_fee = req.body?.consultation_fee != null ? Number(req.body.consultation_fee) : 500;
+      const payment_method = String(req.body?.payment_method || 'UPI').trim();
+      const payment_status = ['Paid', 'Pending'].includes(req.body?.payment_status) ? req.body.payment_status : 'Paid';
+      const payment_transaction_id = String(req.body?.payment_transaction_id || `TXN-${Date.now()}`);
+
       const appointment = await this.appointmentRepository.create({
-        userId: Number(req.user.id), patient_code: patient?.patient_code || '', starts_at, reason,
-        source: 'App', status: 'Requested',
-        status_history: [{ action: 'requested from patient app', status: 'Requested', changed_by: actor, starts_at }],
+        userId: Number(req.user.id),
+        patient_code: patient?.patient_code || '',
+        starts_at,
+        reason,
+        consultation_fee,
+        payment_status,
+        payment_method,
+        payment_transaction_id,
+        source: 'App',
+        status: 'Requested',
+        status_history: [{
+          action: `requested from patient app (fee: ₹${consultation_fee}, ${payment_status} via ${payment_method})`,
+          status: 'Requested',
+          changed_by: actor,
+          starts_at,
+        }],
       });
-      await this.patientActivityRepository.record({ userId: req.user.id, patientCode: patient?.patient_code, type: 'appointment', title: 'Appointment requested', summary: `${reason} · ${starts_at}`, actor: 'Patient app', metadata: { appointment_id: appointment.id } });
+      await this.patientActivityRepository.record({
+        userId: req.user.id,
+        patientCode: patient?.patient_code,
+        type: 'appointment',
+        title: 'Appointment requested',
+        summary: `${reason} · ${starts_at} · ₹${consultation_fee} (${payment_status})`,
+        actor: 'Patient app',
+        metadata: { appointment_id: appointment.id, opd_token: appointment.opd_token },
+      });
       return sendSuccess(res, { message: 'Appointment request sent to the clinic.', data: this.serialize(appointment, patient), statusCode: 201 });
     } catch (error) { next(error); }
   };
@@ -158,14 +190,14 @@ export class AppointmentController {
       if (!appointment) throw new NotFoundError('Appointment not found.');
       const actor = String(req.user?.email || req.user?.login || 'Clinic admin');
       const body = req.body || {};
-      let patch;
-      let event;
+      let patch = {};
+      let event = null;
       if (body.action === 'reschedule') {
         const starts_at = normalizeStartsAt(body.starts_at);
         await this.validateSlot(starts_at, { exceptId: appointment.id });
         patch = { starts_at, status: 'Confirmed' };
         event = { action: 'rescheduled by clinic', status: 'Confirmed', starts_at, changed_by: actor };
-      } else if (appointmentStatuses.includes(body.status)) {
+      } else if (body.status && appointmentStatuses.includes(body.status)) {
         const allowedNext = {
           Requested: ['Confirmed', 'Cancelled'],
           Confirmed: ['Arrived', 'In Consultation', 'Completed', 'Cancelled', 'No show'],
@@ -179,9 +211,25 @@ export class AppointmentController {
           throw new BadRequestError(`Appointment status cannot move from ${appointment.status} to ${body.status}.`);
         }
         if (body.status === 'No show' && new Date(appointment.starts_at).getTime() > Date.now()) throw new BadRequestError('A future appointment cannot be marked as no show.');
-        patch = { status: body.status };
+        patch.status = body.status;
         event = { action: `status changed to ${body.status}`, status: body.status, changed_by: actor };
-      } else throw new BadRequestError('Provide a valid appointment status or action=reschedule.');
+      } else if (!body.payment_status) {
+        throw new BadRequestError('Provide a valid appointment status, payment_status, or action=reschedule.');
+      }
+
+      if (body.payment_status) {
+        if (!['Pending', 'Paid', 'Refunded', 'Waived'].includes(body.payment_status)) {
+          throw new BadRequestError('payment_status must be Pending, Paid, Refunded, or Waived.');
+        }
+        patch.payment_status = body.payment_status;
+        if (body.payment_status === 'Paid') {
+          patch.payment_time = new Date();
+        }
+        const payAction = `payment marked ${body.payment_status}`;
+        event = event
+          ? { ...event, action: `${event.action} · ${payAction}` }
+          : { action: payAction, status: appointment.status, changed_by: actor };
+      }
       const updated = await this.appointmentRepository.update(appointment.id, patch, event);
       await this.patientActivityRepository.record({ userId: appointment.userId, patientCode: appointment.patient_code, type: 'appointment', title: event.action, summary: patch.starts_at || appointment.starts_at, actor, metadata: { appointment_id: appointment.id } });
       const patient = await this.userRepository.findById(appointment.userId);

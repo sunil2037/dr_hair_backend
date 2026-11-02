@@ -32,7 +32,10 @@ export const createAdminRouter = ({ adminController, notificationController, vid
   router.get('/reviews', requireSuperAdmin, adminController.listReviews);
   router.patch('/reviews/status', requireSuperAdmin, adminController.updateReviewStatus);
   router.post('/notifications/send-to-user', requireSuperAdmin, notificationController.sendToUser);
+  router.post('/notifications/broadcast', requireSuperAdmin, notificationController.broadcast);
+  router.get('/notifications/history', requireSuperAdmin, notificationController.listCampaigns);
   router.post('/media/video-upload-signature', requireSuperAdmin, videoController.uploadSignature);
+  router.post('/media/videos/signature', requireSuperAdmin, videoController.uploadSignature);
   router.post('/media/videos', requireSuperAdmin, videoController.saveUploadedVideo);
   router.post('/media/videos/youtube', requireSuperAdmin, videoController.addYouTubeVideo);
   router.get('/media/videos', requireSuperAdmin, videoController.listAdmin);

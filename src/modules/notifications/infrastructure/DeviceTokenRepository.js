@@ -36,6 +36,13 @@ export class DeviceTokenRepository {
     return store.deviceTokens.filter((record) => record.userId === numericId);
   }
 
+  async listAll() {
+    if (isMongoConnected()) {
+      return DeviceTokenModel.find().lean();
+    }
+    return store.deviceTokens || [];
+  }
+
   async remove({ userId, token }) {
     const numericId = Number(userId);
     if (isMongoConnected()) {
