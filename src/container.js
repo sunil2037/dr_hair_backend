@@ -82,27 +82,28 @@ import { createPatientClinicalRouter } from './modules/patient/presentation/pati
  * Dependency Injection Container
  * Initializes and wires clean architecture components
  */
-export const createContainer = () => {
+export const createContainer = (overrides = {}) => {
   // 1. Infrastructure Layer (Repositories & External Services)
-  const otpRepository = new OtpRepository();
-  const smsService = new SmsService();
-  const userRepository = new UserRepository();
-  const hairTestRepository = new HairTestRepository();
-  const treatmentRepository = new TreatmentRepository();
-  const reviewRepository = new ReviewRepository();
-  const deviceTokenRepository = new DeviceTokenRepository();
-  const notificationRepository = new NotificationRepository();
-  const videoRepository = new VideoRepository();
-  const productRepository = new ProductRepository();
-  const cartRepository = new CartRepository();
-  const adminAccountRepository = new AdminAccountRepository();
-  const clinicalReportRepository = new ClinicalReportRepository();
-  const appointmentRepository = new AppointmentRepository();
-  const patientActivityRepository = new PatientActivityRepository();
-  const progressCheckInRepository = new ProgressCheckInRepository();
-  const mediaReferenceRepository = new MediaReferenceRepository();
-  const patientArchiveService = new PatientArchiveService({ clinicalReportRepository });
-  const imageStorage = new CloudinaryImageStorage();
+  const otpRepository = overrides.otpRepository || new OtpRepository();
+  const smsService = overrides.smsService || new SmsService();
+  const userRepository = overrides.userRepository || new UserRepository();
+  const hairTestRepository = overrides.hairTestRepository || new HairTestRepository();
+  const treatmentRepository = overrides.treatmentRepository || new TreatmentRepository();
+  const reviewRepository = overrides.reviewRepository || new ReviewRepository();
+  const deviceTokenRepository = overrides.deviceTokenRepository || new DeviceTokenRepository();
+  const notificationRepository = overrides.notificationRepository || new NotificationRepository();
+  const videoRepository = overrides.videoRepository || new VideoRepository();
+  const productRepository = overrides.productRepository || new ProductRepository();
+  const cartRepository = overrides.cartRepository || new CartRepository();
+  const adminAccountRepository = overrides.adminAccountRepository || new AdminAccountRepository();
+  const clinicalReportRepository = overrides.clinicalReportRepository || new ClinicalReportRepository();
+  const appointmentRepository = overrides.appointmentRepository || new AppointmentRepository();
+  const patientActivityRepository = overrides.patientActivityRepository || new PatientActivityRepository();
+  const progressCheckInRepository = overrides.progressCheckInRepository || new ProgressCheckInRepository();
+  const mediaReferenceRepository = overrides.mediaReferenceRepository || new MediaReferenceRepository();
+  const patientArchiveService =
+    overrides.patientArchiveService || new PatientArchiveService({ clinicalReportRepository });
+  const imageStorage = overrides.imageStorage || new CloudinaryImageStorage();
 
   // 2. Application Layer (Use Cases)
   const sendOtpUseCase = new SendOtpUseCase({

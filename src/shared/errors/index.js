@@ -51,3 +51,9 @@ export class ValidationError extends AppError {
   }
 }
 
+export class BadGatewayError extends AppError {
+  constructor(message = 'Upstream gateway error', details = null) {
+    super(message, 502, details);
+  }
+}
+

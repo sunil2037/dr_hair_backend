@@ -86,5 +86,10 @@ export const config = {
     exposeTestOtp: isLocalDevelopment && process.env.EXPOSE_TEST_OTP?.trim().toLowerCase() === 'true',
     expiryMinutes: parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 10,
   },
+
+  fast2sms: {
+    apiKey: process.env.FAST2SMS_API_KEY?.trim() || '',
+    route: process.env.FAST2SMS_ROUTE?.trim() || 'otp',
+  },
 };
 

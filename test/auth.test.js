@@ -1,9 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createContainer } from '../src/container.js';
+import { SmsService } from '../src/modules/auth/infrastructure/SmsService.js';
 
 describe('Auth Module - Clean Architecture Tests', () => {
-  const container = createContainer();
+  // Use mock SMS service in unit tests to prevent hitting external Fast2SMS network
+  const container = createContainer({
+    smsService: new SmsService({ fast2smsConfig: { apiKey: '', route: 'otp' } }),
+  });
   const { sendOtpUseCase, verifyOtpUseCase } = container.useCases;
 
   it('should send OTP for existing user', async () => {
@@ -100,6 +104,92 @@ describe('Auth Module - Clean Architecture Tests', () => {
     assert.equal(jsonResult.data.is_registered, true);
     assert.equal(typeof jsonResult.data.has_completed_assessment, 'boolean');
     assert.ok(['COMPLETE_PROFILE', 'ASSESSMENT', 'HOME'].includes(jsonResult.data.next_step));
+  });
+
+  describe('Fast2SMS Integration in SmsService', () => {
+    it('returns true in mock mode when FAST2SMS_API_KEY is not configured', async () => {
+      const { SmsService } = await import('../src/modules/auth/infrastructure/SmsService.js');
+      const service = new SmsService({ fast2smsConfig: { apiKey: '', route: 'otp' } });
+      const result = await service.sendOtp('9876543210', '123456');
+      assert.equal(result, true);
+    });
+
+    it('returns true without calling SMS gateway for email destinations', async () => {
+      const { SmsService } = await import('../src/modules/auth/infrastructure/SmsService.js');
+      const service = new SmsService({ fast2smsConfig: { apiKey: 'dummy_key', route: 'otp' } });
+      const result = await service.sendOtp('patient@example.com', '123456');
+      assert.equal(result, true);
+    });
+
+    it('dispatches to Fast2SMS API when apiKey is provided and cleans phone numbers', async () => {
+      const { SmsService } = await import('../src/modules/auth/infrastructure/SmsService.js');
+      const originalFetch = globalThis.fetch;
+      let requestedUrl = null;
+      let requestedBody = null;
+      let requestedHeaders = null;
+
+      globalThis.fetch = async (url, options) => {
+        requestedUrl = url;
+        requestedHeaders = options.headers;
+        requestedBody = JSON.parse(options.body);
+        return {
+          ok: true,
+          json: async () => ({
+            return: true,
+            request_id: 'fast2sms_req_123',
+            message: ['SMS sent successfully.'],
+          }),
+        };
+      };
+
+      try {
+        const service = new SmsService({
+          fast2smsConfig: { apiKey: 'test_fast2sms_key', route: 'otp' },
+        });
+
+        // Test with +91 country code prefix
+        const result = await service.sendOtp('+919876543210', '654321');
+        assert.equal(result, true);
+        assert.equal(requestedUrl, 'https://www.fast2sms.com/dev/bulkV2');
+        assert.equal(requestedHeaders.authorization, 'test_fast2sms_key');
+        assert.equal(requestedBody.route, 'otp');
+        assert.equal(requestedBody.variables_values, '654321');
+        assert.equal(requestedBody.numbers, '9876543210'); // Clean 10 digits
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('throws BadGatewayError when Fast2SMS returns return: false', async () => {
+      const { SmsService } = await import('../src/modules/auth/infrastructure/SmsService.js');
+      const originalFetch = globalThis.fetch;
+
+      globalThis.fetch = async () => ({
+        ok: true,
+        json: async () => ({
+          return: false,
+          message: 'Invalid authorization key',
+        }),
+      });
+
+      try {
+        const service = new SmsService({
+          fast2smsConfig: { apiKey: 'invalid_key', route: 'otp' },
+        });
+
+        await assert.rejects(
+          async () => {
+            await service.sendOtp('9876543210', '123456');
+          },
+          {
+            name: 'BadGatewayError',
+            statusCode: 502,
+          }
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
   });
 });
 
