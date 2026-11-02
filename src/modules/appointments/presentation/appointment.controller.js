@@ -1,5 +1,6 @@
 import { BadRequestError, ConflictError, NotFoundError } from '../../../shared/errors/index.js';
 import { sendSuccess } from '../../../shared/utils/response.js';
+import { sendPushNotification } from '../../notifications/infrastructure/FirebaseAdminMessaging.js';
 
 const appointmentStatuses = ['Requested', 'Confirmed', 'Arrived', 'In Consultation', 'Completed', 'Cancelled', 'No show'];
 const slotMinutes = new Set([0, 30]);
@@ -23,10 +24,18 @@ const dateKeyFor = (startsAt) => {
 const validateDateKey = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value)) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 
 export class AppointmentController {
-  constructor({ appointmentRepository, userRepository, patientActivityRepository }) {
+  constructor({
+    appointmentRepository,
+    userRepository,
+    patientActivityRepository,
+    notificationRepository,
+    deviceTokenRepository,
+  }) {
     this.appointmentRepository = appointmentRepository;
     this.userRepository = userRepository;
     this.patientActivityRepository = patientActivityRepository;
+    this.notificationRepository = notificationRepository;
+    this.deviceTokenRepository = deviceTokenRepository;
   }
 
   validateSlot = async (startsAt, { patientRequest = false, exceptId = '' } = {}) => {
@@ -51,10 +60,11 @@ export class AppointmentController {
     const hour = Number(parts.hour);
     const time = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }).format(new Date(appointment.starts_at));
     const date = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium' }).format(new Date(appointment.starts_at));
+    const patientCode = patient?.patient_code || appointment.patient_code || (appointment.userId ? `DHP${String(appointment.userId).padStart(4, '0')}` : '');
     return {
       ...appointment,
-      patientId: patient?.patient_code || appointment.patient_code || String(appointment.userId),
-      patient_code: patient?.patient_code || appointment.patient_code || '',
+      patientId: patientCode || String(appointment.userId || ''),
+      patient_code: patientCode,
       customer: patient?.name || 'Patient',
       service: appointment.reason,
       startsAt: appointment.starts_at,
@@ -129,6 +139,47 @@ export class AppointmentController {
         actor: 'Patient app',
         metadata: { appointment_id: appointment.id, opd_token: appointment.opd_token },
       });
+
+      // Automated push & in-app notification trigger for appointment booking
+      if (this.notificationRepository) {
+        try {
+          const notif = await this.notificationRepository.create({
+            userId: Number(req.user.id),
+            title: 'Appointment Booked Successfully',
+            body: `Your clinic sitting for ${reason} is confirmed (Token #${appointment.opd_token || '1'}). Tap to view details.`,
+            type: 'appointment',
+            destination: {
+              type: 'screen',
+              screen: 'clinic_appointment',
+              entityId: appointment.id,
+            },
+            data: {
+              appointment_id: appointment.id,
+              opd_token: String(appointment.opd_token || ''),
+              destination_type: 'screen',
+              screen: 'clinic_appointment',
+            },
+          });
+
+          if (this.deviceTokenRepository) {
+            const tokens = await this.deviceTokenRepository.listByUserId(req.user.id);
+            for (const { token } of tokens) {
+              await sendPushNotification({
+                token,
+                title: notif.title,
+                body: notif.body,
+                data: {
+                  notification_id: notif.id,
+                  destination_type: 'screen',
+                  screen: 'clinic_appointment',
+                  entity_id: appointment.id,
+                },
+              }).catch(() => {});
+            }
+          }
+        } catch (_) {}
+      }
+
       return sendSuccess(res, { message: 'Appointment request sent to the clinic.', data: this.serialize(appointment, patient), statusCode: 201 });
     } catch (error) { next(error); }
   };

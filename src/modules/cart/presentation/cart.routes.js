@@ -15,6 +15,7 @@ export function createCartRouter({ cartController }) {
   router.post('/apply-coupon', cartController.applyCoupon);
   router.post('/apply-reward', cartController.applyCoupon);
   router.delete('/coupon', cartController.removeCoupon);
+  router.post('/checkout', cartController.checkout);
 
   return router;
 }

@@ -91,6 +91,7 @@ export const createContainer = () => {
   const treatmentRepository = new TreatmentRepository();
   const reviewRepository = new ReviewRepository();
   const deviceTokenRepository = new DeviceTokenRepository();
+  const notificationRepository = new NotificationRepository();
   const videoRepository = new VideoRepository();
   const productRepository = new ProductRepository();
   const cartRepository = new CartRepository();
@@ -206,7 +207,7 @@ export const createContainer = () => {
     getReviewsUseCase,
     createReviewUseCase,
   });
-  const notificationController = new NotificationController({ deviceTokenRepository });
+  const notificationController = new NotificationController({ deviceTokenRepository, notificationRepository });
   const videoController = new VideoController({ videoRepository });
   const productController = new ProductController({
     listProductsUseCase,
@@ -222,9 +223,17 @@ export const createContainer = () => {
     removeCartItemUseCase,
     clearCartUseCase,
     applyCouponUseCase,
+    notificationRepository,
+    deviceTokenRepository,
   });
   const adminAuthController = new AdminAuthController({ adminAuthUseCase });
-  const appointmentController = new AppointmentController({ appointmentRepository, userRepository, patientActivityRepository });
+  const appointmentController = new AppointmentController({
+    appointmentRepository,
+    userRepository,
+    patientActivityRepository,
+    notificationRepository,
+    deviceTokenRepository,
+  });
   const patientClinicalController = new PatientClinicalController({
     hairTestRepository,
     treatmentRepository,
@@ -281,6 +290,7 @@ export const createContainer = () => {
       progressCheckInRepository,
       reviewRepository,
       deviceTokenRepository,
+      notificationRepository,
       videoRepository,
       productRepository,
       cartRepository,

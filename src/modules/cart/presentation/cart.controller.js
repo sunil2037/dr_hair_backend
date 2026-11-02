@@ -1,3 +1,6 @@
+import { BadRequestError } from '../../../shared/errors/index.js';
+import { sendPushNotification } from '../../notifications/infrastructure/FirebaseAdminMessaging.js';
+
 export class CartController {
   constructor({
     getCartUseCase,
@@ -6,6 +9,8 @@ export class CartController {
     removeCartItemUseCase,
     clearCartUseCase,
     applyCouponUseCase,
+    notificationRepository,
+    deviceTokenRepository,
   }) {
     this.getCartUseCase = getCartUseCase;
     this.addToCartUseCase = addToCartUseCase;
@@ -13,6 +18,8 @@ export class CartController {
     this.removeCartItemUseCase = removeCartItemUseCase;
     this.clearCartUseCase = clearCartUseCase;
     this.applyCouponUseCase = applyCouponUseCase;
+    this.notificationRepository = notificationRepository;
+    this.deviceTokenRepository = deviceTokenRepository;
   }
 
   _resolveUserId(req) {
@@ -110,6 +117,76 @@ export class CartController {
       const userId = this._resolveUserId(req);
       const data = await this.applyCouponUseCase.remove({ userId });
       res.status(200).json({ status: 'success', data, message: 'Coupon removed' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  checkout = async (req, res, next) => {
+    try {
+      const userId = this._resolveUserId(req);
+      const cart = await this.getCartUseCase.execute(userId);
+      if (!cart || !cart.items || cart.items.length === 0) {
+        throw new BadRequestError('Cart is empty. Add products before checking out.');
+      }
+
+      const orderId = `ORD-${Date.now()}`;
+      const itemCount = cart.items.length;
+      const totalAmount = cart.pricing?.total || 0;
+
+      // Clear the cart
+      await this.clearCartUseCase.execute(userId);
+
+      // Trigger notification if user is authenticated numeric ID
+      const numericUserId = Number(userId);
+      if (Number.isInteger(numericUserId) && numericUserId > 0 && this.notificationRepository) {
+        try {
+          const notif = await this.notificationRepository.create({
+            userId: numericUserId,
+            title: 'Order Confirmed!',
+            body: `Your order #${orderId} with ${itemCount} item(s) (₹${totalAmount}) has been placed successfully.`,
+            type: 'order',
+            destination: {
+              type: 'screen',
+              screen: 'orders',
+              entityId: orderId,
+            },
+            data: {
+              order_id: orderId,
+              destination_type: 'screen',
+              screen: 'orders',
+            },
+          });
+
+          if (this.deviceTokenRepository) {
+            const tokens = await this.deviceTokenRepository.listByUserId(numericUserId);
+            for (const { token } of tokens) {
+              await sendPushNotification({
+                token,
+                title: notif.title,
+                body: notif.body,
+                data: {
+                  notification_id: notif.id,
+                  destination_type: 'screen',
+                  screen: 'orders',
+                  entity_id: orderId,
+                },
+              }).catch(() => {});
+            }
+          }
+        } catch (_) {}
+      }
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Order placed successfully.',
+        data: {
+          order_id: orderId,
+          total_items: itemCount,
+          total_amount: totalAmount,
+          status: 'Confirmed',
+        },
+      });
     } catch (error) {
       next(error);
     }

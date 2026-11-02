@@ -75,7 +75,7 @@ export const createApp = () => {
         videos: ['/api/v1/videos'],
         products: ['/api/v1/products', '/api/v1/products/:id'],
         media: ['/api/v1/media/upload'],
-        notifications: ['/api/v1/notifications/device-tokens'],
+        notifications: ['/api/v1/notifications', '/api/v1/notifications/device-tokens'],
         admin: ['/api/v1/admin/users', '/api/v1/admin/hair-tests', '/api/v1/admin/treatments', '/api/v1/admin/reviews'],
       },
     });
