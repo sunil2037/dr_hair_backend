@@ -6,6 +6,7 @@ import { HairTestRepository } from './modules/hair_test/infrastructure/HairTestR
 import { TreatmentRepository } from './modules/treatment/infrastructure/TreatmentRepository.js';
 import { ReviewRepository } from './modules/review/infrastructure/ReviewRepository.js';
 import { DeviceTokenRepository } from './modules/notifications/infrastructure/DeviceTokenRepository.js';
+import { NotificationRepository } from './modules/notifications/infrastructure/NotificationRepository.js';
 import { VideoRepository } from './modules/media/infrastructure/VideoRepository.js';
 import { ProductRepository } from './modules/products/infrastructure/ProductRepository.js';
 import { CartRepository } from './modules/cart/infrastructure/CartRepository.js';
