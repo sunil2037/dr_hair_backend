@@ -139,6 +139,51 @@ export const createApp = () => {
   app.use('/Review', container.routers.reviewRouter);
   app.use('/review', container.routers.reviewRouter);
 
+  // Clinic Services endpoint (consumed by Flutter home / services catalog)
+  const clinicalServices = [
+    {
+      id: 'srv_assessment',
+      title: 'AI Hair & Scalp Assessment',
+      description: 'Comprehensive evaluation of hair loss pattern, scalp health, and personalized clinical guidance.',
+      imageUrl: '',
+      rating: 4.9,
+      reviewsCount: 340,
+      price: 'Free',
+    },
+    {
+      id: 'srv_prp',
+      title: 'PRP Hair Therapy',
+      description: 'Advanced Platelet-Rich Plasma therapy designed to stimulate active and dormant follicles.',
+      imageUrl: '',
+      rating: 4.8,
+      reviewsCount: 195,
+      price: '₹4,500',
+    },
+    {
+      id: 'srv_consultation',
+      title: 'Trichologist Consultation',
+      description: 'One-on-one video or clinic consultation with certified Dr. Hair medical specialists.',
+      imageUrl: '',
+      rating: 5.0,
+      reviewsCount: 420,
+      price: '₹500',
+    },
+    {
+      id: 'srv_laser',
+      title: 'Low-Level Light Therapy (LLLT)',
+      description: 'Clinical-grade light stimulation therapy for cellular repair and improved scalp circulation.',
+      imageUrl: '',
+      rating: 4.7,
+      reviewsCount: 112,
+      price: '₹2,500',
+    },
+  ];
+  app.get('/services', (_req, res) => res.status(200).json(clinicalServices));
+  app.get('/api/v1/services', (_req, res) => res.status(200).json(clinicalServices));
+
+  // Public clinic appointment closed dates / holidays
+  app.get('/api/v1/appointments/closed-dates', container.controllers.appointmentController.listClosedDates);
+
   // 4. Versioned RESTful API Routes (Modern Aliases)
   app.use('/api/v1/auth', container.routers.authRouter);
   app.use('/api/v1/admin-auth', container.routers.adminAuthRouter);

@@ -1,21 +1,17 @@
 import { createApp } from '../src/app.js';
-import { connectDatabase } from '../src/shared/database/mongodb.js';
+import { connectDatabase, isMongoConnected } from '../src/shared/database/mongodb.js';
 
-let appPromise = null;
+let appInstance = null;
 
 async function getApp() {
-  if (!appPromise) {
-    const pending = (async () => {
-      await connectDatabase();
-      const { app } = createApp();
-      return app;
-    })();
-    appPromise = pending.catch((error) => {
-      appPromise = null;
-      throw error;
-    });
+  if (!appInstance) {
+    await connectDatabase();
+    const { app } = createApp();
+    appInstance = app;
+  } else if (!isMongoConnected()) {
+    await connectDatabase();
   }
-  return appPromise;
+  return appInstance;
 }
 
 export default async function handler(req, res) {
