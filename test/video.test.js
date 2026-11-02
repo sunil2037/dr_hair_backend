@@ -61,4 +61,38 @@ describe('Admin video content', () => {
     assert.deepEqual(requested, { limit: '8', placement: 'home' });
     assert.equal(res.statusCode, 200);
   });
+
+  it('supports chunk loading with page, limit, and category filtering', async () => {
+    let requested;
+    const controller = new VideoController({
+      videoRepository: {
+        listPublished: async (options) => {
+          requested = options;
+          return { items: [{ id: 'vid-1', title: 'Test Video' }], total: 8, page: 2, limit: 3, has_more: true };
+        },
+      },
+    });
+    const res = responseRecorder();
+    await controller.listPublished({ query: { page: '2', limit: '3', category: 'Hair Fall', placement: 'reels' } }, res, (error) => { throw error; });
+
+    assert.deepEqual(requested, { page: '2', limit: '3', category: 'Hair Fall', placement: 'reels' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.data.has_more, true);
+    assert.equal(res.body.data.items.length, 1);
+  });
+
+  it('deletes video by publicId', async () => {
+    let deletedId;
+    const controller = new VideoController({
+      videoRepository: {
+        delete: async (id) => { deletedId = id; return true; },
+      },
+    });
+    const res = responseRecorder();
+    await controller.deleteVideo({ params: { publicId: 'drhair/videos/sample' } }, res, (error) => { throw error; });
+
+    assert.equal(deletedId, 'drhair/videos/sample');
+    assert.equal(res.statusCode, 200);
+    assert.match(res.body.message, /deleted successfully/i);
+  });
 });

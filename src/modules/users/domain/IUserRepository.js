@@ -29,5 +29,9 @@ export class IUserRepository {
   async updateAvatar(id, avatarUrl) {
     throw new Error('Method not implemented');
   }
+
+  async deleteAccount(id) {
+    throw new Error('Method not implemented');
+  }
 }
 

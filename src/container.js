@@ -24,6 +24,7 @@ import { RegisterUserUseCase } from './modules/users/application/RegisterUserUse
 import { GetProfileUseCase } from './modules/users/application/GetProfileUseCase.js';
 import { UpdateProfileUseCase } from './modules/users/application/UpdateProfileUseCase.js';
 import { UpdateProfilePictureUseCase } from './modules/users/application/UpdateProfilePictureUseCase.js';
+import { DeleteAccountUseCase } from './modules/users/application/DeleteAccountUseCase.js';
 import { SubmitHairTestUseCase } from './modules/hair_test/application/SubmitHairTestUseCase.js';
 import { GetHairTestsUseCase } from './modules/hair_test/application/GetHairTestsUseCase.js';
 import { GetTreatmentHistoryUseCase } from './modules/treatment/application/GetTreatmentHistoryUseCase.js';
@@ -114,6 +115,10 @@ export const createContainer = () => {
     imageStorage,
   });
 
+  const deleteAccountUseCase = new DeleteAccountUseCase({
+    userRepository,
+  });
+
   const submitHairTestUseCase = new SubmitHairTestUseCase({
     hairTestRepository,
     imageStorage,
@@ -145,6 +150,7 @@ export const createContainer = () => {
     sendOtpUseCase,
     verifyOtpUseCase,
     userRepository,
+    hairTestRepository,
   });
 
   const userController = new UserController({
@@ -153,6 +159,7 @@ export const createContainer = () => {
     getProfileUseCase,
     updateProfileUseCase,
     updateProfilePictureUseCase,
+    deleteAccountUseCase,
   });
 
   const hairTestController = new HairTestController({
@@ -243,6 +250,7 @@ export const createContainer = () => {
       getProfileUseCase,
       updateProfileUseCase,
       updateProfilePictureUseCase,
+      deleteAccountUseCase,
       submitHairTestUseCase,
       getHairTestsUseCase,
       getTreatmentHistoryUseCase,

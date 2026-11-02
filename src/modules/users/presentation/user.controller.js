@@ -8,12 +8,14 @@ export class UserController {
     getProfileUseCase,
     updateProfileUseCase,
     updateProfilePictureUseCase,
+    deleteAccountUseCase,
   }) {
     this.checkUserUseCase = checkUserUseCase;
     this.registerUserUseCase = registerUserUseCase;
     this.getProfileUseCase = getProfileUseCase;
     this.updateProfileUseCase = updateProfileUseCase;
     this.updateProfilePictureUseCase = updateProfilePictureUseCase;
+    this.deleteAccountUseCase = deleteAccountUseCase;
   }
 
   checkUser = async (req, res, next) => {
@@ -61,6 +63,8 @@ export class UserController {
         token,
         is_registered: true,
         is_admin: false,
+        has_completed_assessment: false,
+        next_step: 'ASSESSMENT',
         data: result.user ? result.user.toPublicProfile() : undefined,
       });
     } catch (err) {
@@ -122,6 +126,20 @@ export class UserController {
         data: {
           profile_url: result.profileUrl,
         },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  deleteAccount = async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const result = await this.deleteAccountUseCase.execute({ userId });
+
+      return sendSuccess(res, {
+        message: result.message,
+        data: { deleted: true },
       });
     } catch (err) {
       next(err);

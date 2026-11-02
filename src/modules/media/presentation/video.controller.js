@@ -147,12 +147,29 @@ export class VideoController {
 
   listPublished = async (req, res, next) => {
     try {
-      const { placement } = req.query;
+      const { placement, limit, page, category } = req.query;
       if (placement !== undefined && !['home', 'reels'].includes(placement)) {
         throw new BadRequestError('placement must be home or reels.');
       }
-      const items = await this.videoRepository.listPublished({ limit: req.query.limit, placement });
-      return sendSuccess(res, { data: items });
+      const options = { limit, placement };
+      if (page !== undefined) options.page = page;
+      if (category !== undefined) options.category = category;
+      const result = await this.videoRepository.listPublished(options);
+      return sendSuccess(res, { data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteVideo = async (req, res, next) => {
+    try {
+      const publicId = req.params?.publicId || req.body?.public_id;
+      if (typeof publicId !== 'string' || !publicId.trim()) {
+        throw new BadRequestError('public_id is required.');
+      }
+      const deleted = await this.videoRepository.delete(publicId.trim());
+      if (!deleted) throw new NotFoundError('Video not found.');
+      return sendSuccess(res, { message: 'Video deleted successfully.' });
     } catch (error) {
       next(error);
     }

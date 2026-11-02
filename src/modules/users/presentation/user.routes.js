@@ -18,6 +18,9 @@ export const createUserRouter = ({ userController }) => {
     uploadProfile.single('profile'),
     userController.updateProfilePicture
   );
+  router.post('/deleteAccount', authenticateToken, requireRegisteredUser, userController.deleteAccount);
+  router.delete('/deleteAccount', authenticateToken, requireRegisteredUser, userController.deleteAccount);
+  router.delete('/account', authenticateToken, requireRegisteredUser, userController.deleteAccount);
 
   return router;
 };

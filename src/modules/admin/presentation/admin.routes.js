@@ -37,6 +37,8 @@ export const createAdminRouter = ({ adminController, notificationController, vid
   router.post('/media/videos/youtube', requireSuperAdmin, videoController.addYouTubeVideo);
   router.get('/media/videos', requireSuperAdmin, videoController.listAdmin);
   router.patch('/media/videos/status', requireSuperAdmin, videoController.updateStatus);
+  router.delete('/media/videos/:publicId', requireSuperAdmin, videoController.deleteVideo);
+  router.delete('/media/videos', requireSuperAdmin, videoController.deleteVideo);
 
   return router;
 };

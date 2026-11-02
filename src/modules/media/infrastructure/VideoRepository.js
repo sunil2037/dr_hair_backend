@@ -16,16 +16,43 @@ export class VideoRepository {
     return record;
   }
 
-  async listPublished({ limit = 20, placement } = {}) {
-    const safeLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
+  async listPublished({ page = 1, limit = 10, placement, category } = {}) {
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safeLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
+    const skip = (safePage - 1) * safeLimit;
     const placementFilter = placement ? { placement: { $in: [placement, 'both'] } } : {};
+    const categoryFilter = category && category !== 'All' ? { category: new RegExp(`^${category}$`, 'i') } : {};
+
     if (isMongoConnected()) {
-      return VideoModel.find({ status: 'published', ...placementFilter }).sort({ created_at: -1 }).limit(safeLimit).lean();
+      const filter = { status: 'published', ...placementFilter, ...categoryFilter };
+      const [items, total] = await Promise.all([
+        VideoModel.find(filter).sort({ created_at: -1 }).skip(skip).limit(safeLimit).lean(),
+        VideoModel.countDocuments(filter),
+      ]);
+      const has_more = skip + items.length < total;
+      return { items, total, page: safePage, limit: safeLimit, has_more };
     }
-    return store.videos
-      .filter((record) => record.status === 'published' && (!placement || record.placement === placement || record.placement === 'both'))
-      .sort(orderNewestFirst)
-      .slice(0, safeLimit);
+
+    const allMatching = store.videos
+      .filter((record) => {
+        if (record.status !== 'published') return false;
+        if (placement && record.placement !== placement && record.placement !== 'both') return false;
+        if (category && category !== 'All' && record.category?.toLowerCase() !== category.toLowerCase()) return false;
+        return true;
+      })
+      .sort(orderNewestFirst);
+
+    const total = allMatching.length;
+    const items = allMatching.slice(skip, skip + safeLimit);
+    const has_more = skip + items.length < total;
+
+    return {
+      items,
+      total,
+      page: safePage,
+      limit: safeLimit,
+      has_more,
+    };
   }
 
   async listAdmin({ page = 1, limit = 25 } = {}) {

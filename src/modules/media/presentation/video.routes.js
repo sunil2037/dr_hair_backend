@@ -14,6 +14,8 @@ export const createVideoRouter = ({ videoController }) => {
   adminRouter.post('/youtube', videoController.addYouTubeVideo);
   adminRouter.get('/', videoController.listAdmin);
   adminRouter.patch('/status', videoController.updateStatus);
+  adminRouter.delete('/:publicId', videoController.deleteVideo);
+  adminRouter.delete('/', videoController.deleteVideo);
 
   return { publicRouter, adminRouter };
 };

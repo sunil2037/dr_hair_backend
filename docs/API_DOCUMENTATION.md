@@ -124,6 +124,21 @@ Updates the authenticated patient's demographics.
 }
 ```
 
+### `POST /api/v1/users/deleteAccount` or `DELETE /api/v1/users/deleteAccount`
+Permanently deletes the authenticated patient's account and personal authentication credentials.
+- **Headers:** `Authorization: Bearer <token>`
+- **Compliance & Data Privacy:** Clears phone, email, name, profile URL, device push tokens, and active verification OTPs. Clinical reports and doctor treatment plans are preserved for medical compliance and clinical record-keeping.
+- **Response (`200 OK`):**
+```json
+{
+  "status": true,
+  "message": "Your account has been deleted successfully.",
+  "data": {
+    "deleted": true
+  }
+}
+```
+
 ---
 
 ## 4. Hair Assessment & Clinical Records

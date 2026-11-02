@@ -2,7 +2,14 @@ import { IUserRepository } from '../domain/IUserRepository.js';
 import { User } from '../domain/User.js';
 import { store } from '../../../shared/database/store.js';
 import { isMongoConnected } from '../../../shared/database/mongodb.js';
-import { UserModel, nextUserId } from '../../../shared/database/models.js';
+import {
+  UserModel,
+  OtpModel,
+  DeviceTokenModel,
+  PatientActivityModel,
+  ProgressCheckInModel,
+  nextUserId,
+} from '../../../shared/database/models.js';
 import { formatPatientCode, resolvePatientId } from '../../../shared/utils/patient-code.js';
 import { ConflictError } from '../../../shared/errors/index.js';
 
@@ -237,6 +244,67 @@ export class UserRepository extends IUserRepository {
       page: safePage,
       limit: safeLimit,
     };
+  }
+
+  async deleteAccount(id) {
+    const numericId = resolvePatientId(id);
+    if (!numericId) return false;
+
+    if (isMongoConnected()) {
+      const user = await UserModel.findOne({ id: numericId }).lean();
+      if (!user) return false;
+
+      // 1. Remove active OTPs for user's phone / email so no pending verification remains
+      const identifiers = [user.phone, user.email, user.phoneNormalized].filter(Boolean);
+      if (identifiers.length && OtpModel) {
+        await OtpModel.deleteMany({ login: { $in: identifiers } });
+      }
+
+      // 2. Remove device push notification tokens
+      if (DeviceTokenModel) {
+        await DeviceTokenModel.deleteMany({ userId: numericId });
+      }
+
+      // 3. Remove transient patient activity and progress check-ins
+      if (PatientActivityModel) {
+        await PatientActivityModel.deleteMany({ userId: numericId });
+      }
+      if (ProgressCheckInModel) {
+        await ProgressCheckInModel.deleteMany({ userId: numericId });
+      }
+
+      // 4. Delete user record permanently from users collection
+      // NOTE: Clinical reports, treatments, hair_tests, and appointments remain preserved
+      // for clinic doctor records and regulatory medical compliance.
+      await UserModel.deleteOne({ id: numericId });
+      return true;
+    }
+
+    // In-memory store fallback
+    const userIndex = store.users.findIndex((u) => u.id === numericId);
+    if (userIndex === -1) return false;
+    const user = store.users[userIndex];
+    const identifiers = [user.phone, user.email].filter(Boolean);
+
+    if (store.otps) {
+      if (store.otps instanceof Map) {
+        identifiers.forEach((idKey) => store.otps.delete(idKey));
+      } else if (Array.isArray(store.otps)) {
+        store.otps = store.otps.filter((o) => !identifiers.includes(o.login));
+      }
+    }
+    if (Array.isArray(store.deviceTokens)) {
+      store.deviceTokens = store.deviceTokens.filter((t) => t.userId !== numericId);
+    }
+    if (Array.isArray(store.patientActivity)) {
+      store.patientActivity = store.patientActivity.filter((a) => a.userId !== numericId);
+    }
+    if (Array.isArray(store.progressCheckIns)) {
+      store.progressCheckIns = store.progressCheckIns.filter((c) => c.userId !== numericId);
+    }
+
+    store.users.splice(userIndex, 1);
+    return true;
   }
 }
 
