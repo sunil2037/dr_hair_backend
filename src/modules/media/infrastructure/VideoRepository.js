@@ -16,6 +16,28 @@ export class VideoRepository {
     return record;
   }
 
+  async syncOrRepairVideos() {
+    if (!isMongoConnected()) return;
+    try {
+      const existingCount = await VideoModel.countDocuments();
+      if (existingCount === 0 && store.videos && store.videos.length > 0) {
+        await VideoModel.insertMany(store.videos).catch(() => {});
+        return;
+      }
+      const brokenCount = await VideoModel.countDocuments({
+        secure_url: { $regex: 'sample\\.mp4' },
+      });
+      if (brokenCount > 0) {
+        for (const item of store.videos) {
+          await VideoModel.updateOne(
+            { public_id: item.public_id },
+            { $set: { secure_url: item.secure_url, thumbnail_url: item.thumbnail_url } },
+          ).catch(() => {});
+        }
+      }
+    } catch (_) {}
+  }
+
   async listPublished({ page = 1, limit = 10, placement, category } = {}) {
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
@@ -24,10 +46,7 @@ export class VideoRepository {
     const categoryFilter = category && category !== 'All' ? { category: new RegExp(`^${category}$`, 'i') } : {};
 
     if (isMongoConnected()) {
-      const existingCount = await VideoModel.countDocuments();
-      if (existingCount === 0 && store.videos && store.videos.length > 0) {
-        await VideoModel.insertMany(store.videos).catch(() => {});
-      }
+      await this.syncOrRepairVideos();
       const filter = { status: 'published', ...placementFilter, ...categoryFilter };
       const [items, total] = await Promise.all([
         VideoModel.find(filter).sort({ created_at: -1 }).skip(skip).limit(safeLimit).lean(),
@@ -63,10 +82,7 @@ export class VideoRepository {
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
     if (isMongoConnected()) {
-      const existingCount = await VideoModel.countDocuments();
-      if (existingCount === 0 && store.videos && store.videos.length > 0) {
-        await VideoModel.insertMany(store.videos).catch(() => {});
-      }
+      await this.syncOrRepairVideos();
       const [items, total] = await Promise.all([
         VideoModel.find().sort({ created_at: -1 }).skip((safePage - 1) * safeLimit).limit(safeLimit).lean(),
         VideoModel.countDocuments(),
