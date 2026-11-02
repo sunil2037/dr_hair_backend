@@ -14,7 +14,7 @@ export const createMediaRouter = ({ mediaController }) => {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     store: createRateLimitStore('media-upload-ip'),
-    passOnStoreError: false,
+    passOnStoreError: true,
   });
   const mediaUploadAccountLimiter = rateLimit({
     windowMs: 24 * 60 * 60 * 1000,
@@ -22,7 +22,7 @@ export const createMediaRouter = ({ mediaController }) => {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     store: createRateLimitStore('media-upload-account'),
-    passOnStoreError: false,
+    passOnStoreError: true,
     keyGenerator: (req) => String(req.user?.id || 'unknown'),
   });
   router.post(

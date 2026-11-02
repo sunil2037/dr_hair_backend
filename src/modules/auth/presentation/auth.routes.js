@@ -13,7 +13,7 @@ const createOtpLimiter = (limit, message, namespace) => rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   store: createRateLimitStore(namespace),
-  passOnStoreError: false,
+  passOnStoreError: true,
   handler: (req, res) => sendError(res, { message, statusCode: 429 }),
 });
 
@@ -23,7 +23,7 @@ const createLoginLimiter = (limit, namespace, message) => rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   store: createRateLimitStore(namespace),
-  passOnStoreError: false,
+  passOnStoreError: true,
   keyGenerator(req) {
     const login = normalizeLogin(req.body?.login || req.body?.mobile || req.body?.email || req.body?.phone || '');
     const identifier = login || 'missing-login';

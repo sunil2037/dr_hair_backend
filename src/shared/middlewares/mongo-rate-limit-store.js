@@ -1,12 +1,12 @@
 import { RateLimitCounterModel } from '../database/models.js';
-import { AppError } from '../errors/index.js';
 
-/** Persistent express-rate-limit store shared by all production instances. */
+/** Persistent express-rate-limit store shared by all production instances with in-memory fallback. */
 export class MongoRateLimitStore {
   constructor(namespace) {
     this.namespace = namespace;
     this.windowMs = 15 * 60 * 1000;
     this.localKeys = false;
+    this.fallback = new Map();
   }
 
   init(options) {
@@ -17,25 +17,31 @@ export class MongoRateLimitStore {
     return `${this.namespace}:${key}`;
   }
 
-  async failClosed(action) {
-    try {
-      return await action();
-    } catch (error) {
-      if (error instanceof AppError) throw error;
-      return undefined;
+  _fallbackIncrement(storageKey) {
+    const now = Date.now();
+    let entry = this.fallback.get(storageKey);
+    if (!entry || entry.resetTime.getTime() <= now) {
+      entry = { totalHits: 1, resetTime: new Date(now + this.windowMs) };
+    } else {
+      entry.totalHits += 1;
     }
+    this.fallback.set(storageKey, entry);
+    return { totalHits: entry.totalHits, resetTime: entry.resetTime };
   }
 
   async get(key) {
-    return this.failClosed(async () => {
-      const item = await RateLimitCounterModel.findOne({ key: this.key(key), resetTime: { $gt: new Date() } }).lean();
+    const storageKey = this.key(key);
+    try {
+      const item = await RateLimitCounterModel.findOne({ key: storageKey, resetTime: { $gt: new Date() } }).lean();
       return item ? { totalHits: item.totalHits, resetTime: item.resetTime } : undefined;
-    });
+    } catch {
+      return this.fallback.get(storageKey);
+    }
   }
 
   async increment(key) {
-    return this.failClosed(async () => {
-      const storageKey = this.key(key);
+    const storageKey = this.key(key);
+    try {
       const now = new Date();
       const active = await RateLimitCounterModel.findOneAndUpdate(
         { key: storageKey, resetTime: { $gt: now } },
@@ -65,21 +71,38 @@ export class MongoRateLimitStore {
         if (raced) return { totalHits: raced.totalHits, resetTime: raced.resetTime };
         throw error;
       }
-    });
+    } catch {
+      return this._fallbackIncrement(storageKey);
+    }
   }
 
   async decrement(key) {
-    return this.failClosed(() => RateLimitCounterModel.updateOne(
-      { key: this.key(key), totalHits: { $gt: 0 } },
-      { $inc: { totalHits: -1 } },
-    ));
+    const storageKey = this.key(key);
+    try {
+      await RateLimitCounterModel.updateOne(
+        { key: storageKey, totalHits: { $gt: 0 } },
+        { $inc: { totalHits: -1 } },
+      );
+    } catch {
+      const entry = this.fallback.get(storageKey);
+      if (entry && entry.totalHits > 0) entry.totalHits -= 1;
+    }
   }
 
   async resetKey(key) {
-    return this.failClosed(() => RateLimitCounterModel.deleteOne({ key: this.key(key) }));
+    const storageKey = this.key(key);
+    try {
+      await RateLimitCounterModel.deleteOne({ key: storageKey });
+    } catch {
+      this.fallback.delete(storageKey);
+    }
   }
 
   async resetAll() {
-    return this.failClosed(() => RateLimitCounterModel.deleteMany({ key: new RegExp(`^${this.namespace}:`) }));
+    try {
+      await RateLimitCounterModel.deleteMany({ key: new RegExp(`^${this.namespace}:`) });
+    } catch {
+      this.fallback.clear();
+    }
   }
 }

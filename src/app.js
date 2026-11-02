@@ -9,9 +9,19 @@ import { createContainer } from './container.js';
 import { errorHandler } from './shared/middlewares/error.middleware.js';
 import { NotFoundError } from './shared/errors/index.js';
 import { databaseStatus } from './shared/database/mongodb.js';
+import { sendError } from './shared/utils/response.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const isDatabaseReady = (database) => {
+  if (database === 'connected') return true;
+
+  // Vercel preview builds may intentionally use seeded in-memory data, but a
+  // production deployment must not report healthy without durable storage.
+  const isPreviewDeployment = process.env.VERCEL_ENV === 'preview';
+  return database === 'memory' && (config.env !== 'production' || isPreviewDeployment);
+};
 
 export const createApp = () => {
   const app = express();
@@ -25,8 +35,12 @@ export const createApp = () => {
         if (!origin) {
           return callback(null, true);
         }
-        if (config.cors.origins.includes(origin)) return callback(null, true);
-        if (config.cors.origins.includes('*') || (config.isDev && config.cors.origins.length === 0)) {
+        if (
+          config.cors.origins.includes(origin) ||
+          config.cors.origins.includes('*') ||
+          (config.isDev && config.cors.origins.length === 0) ||
+          (typeof origin === 'string' && origin.endsWith('.vercel.app'))
+        ) {
           return callback(null, true);
         }
         return callback(null, false);
@@ -43,7 +57,7 @@ export const createApp = () => {
   // 2. System & Health Check Endpoints
   app.get('/', (req, res) => {
     const db = databaseStatus();
-    const healthy = config.env !== 'production' || db === 'connected' || db === 'memory';
+    const healthy = isDatabaseReady(db);
     res.status(healthy ? 200 : 503).json({
       name: 'Dr. Hair Backend API',
       version: '1.0.0',
@@ -68,7 +82,7 @@ export const createApp = () => {
 
   app.get('/health', (req, res) => {
     const db = databaseStatus();
-    const healthy = config.env !== 'production' || db === 'connected' || db === 'memory';
+    const healthy = isDatabaseReady(db);
     res.status(healthy ? 200 : 503).json({
       status: healthy ? 'ok' : 'unavailable',
       database: db,
@@ -93,6 +107,19 @@ export const createApp = () => {
       swaggerOptions: { url: '/api/openapi.yaml' },
     }),
   );
+
+  // Never acknowledge API writes in process memory on a production deployment.
+  // Keep health/docs reachable so operators can diagnose and restore the DB.
+  const isProductionDeployment = config.env === 'production' && process.env.VERCEL_ENV !== 'preview';
+  app.use((req, res, next) => {
+    if (isProductionDeployment && databaseStatus() !== 'connected') {
+      return sendError(res, {
+        message: 'Database is temporarily unavailable. Please retry when service is restored.',
+        statusCode: 503,
+      });
+    }
+    return next();
+  });
 
   // 3. Exact Flutter App & Legacy Routes (Preserving case sensitivity as per API_DOCUMENTATION.md)
   // Auth Module

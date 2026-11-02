@@ -14,6 +14,7 @@ export class AuthController {
 
       return sendSuccess(res, {
         message: result.message,
+        extra: result.testOtp ? { test_otp: result.testOtp } : {},
       });
     } catch (err) {
       next(err);

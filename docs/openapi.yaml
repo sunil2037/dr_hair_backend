@@ -71,7 +71,7 @@ paths:
     post:
       tags: [Authentication]
       summary: Request a sign-in or registration OTP
-      description: Returns a generic response without revealing whether the identity belongs to an account. Development uses a local stub and never returns the OTP. OTPs expire after the configured period, allow up to five wrong guesses, and production request limits are shared through MongoDB. A delivery provider must be configured before OTP requests can succeed outside development.
+      description: Returns a generic response without revealing whether the identity belongs to an account. Local development may include test_otp only when EXPOSE_TEST_OTP=true; this is disabled on every Vercel deployment. OTPs expire after the configured period, allow up to five wrong guesses, and production request limits are shared through MongoDB. A delivery provider must be configured before OTP requests can succeed outside development.
       x-legacy-path: /auth/send_login_otp
       requestBody:
         required: true
@@ -88,6 +88,12 @@ paths:
               schema:
                 allOf:
                   - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      test_otp:
+                        type: string
+                        pattern: '^\d{6}$'
+                        description: Development-only code; returned only with local EXPOSE_TEST_OTP=true.
         '400': { $ref: '#/components/responses/BadRequest' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { description: OTP delivery provider is not configured for this environment }

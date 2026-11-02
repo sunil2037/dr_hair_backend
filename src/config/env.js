@@ -14,10 +14,14 @@ try {
 }
 
 const environment = (process.env.NODE_ENV || 'production').trim().toLowerCase();
+// Never enable local OTP behavior or expose test codes on a deployed Vercel
+// environment, including Preview deployments.
+const isVercelDeployment = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+const isLocalDevelopment = environment === 'development' && !isVercelDeployment;
 const configuredJwtSecret = process.env.JWT_SECRET?.trim() || '';
 const jwtSecret = configuredJwtSecret || '39sJRcn2Ngt9LKoNFB2AQRLZaGfXAooXSD_qP5bqRdbaCc06CyxYqZ2A3zxE-XhP';
 const configuredTestOtp = process.env.DEFAULT_TEST_OTP?.trim() || '';
-const defaultTestOtp = configuredTestOtp || (environment === 'development' ? '123456' : null);
+const defaultTestOtp = isLocalDevelopment ? (configuredTestOtp || '123456') : null;
 const superAdminId = process.env.SUPER_ADMIN_ID?.trim().toLowerCase() || 'dr.hair@admin';
 const superAdminPasswordHash = process.env.SUPER_ADMIN_PASSWORD_HASH?.trim() || 'scrypt$16384$8$1$L1HToB6BXk92naHi-DiXEQ$FmjhFE_je15CM3_sJ8XmwI-NABF0KpNR34o5hQVNWeXxp9d1IFsI-UrV3Q1bfUwduxV_i98uh_ZDhmsjbflv9w';
 
@@ -25,13 +29,13 @@ if (!jwtSecret || jwtSecret.length < 32) {
   throw new Error('JWT_SECRET must be set to a unique value of at least 32 characters.');
 }
 
-if (configuredTestOtp && !/^\d{6}$/.test(configuredTestOtp)) {
+if (isLocalDevelopment && configuredTestOtp && !/^\d{6}$/.test(configuredTestOtp)) {
   throw new Error('DEFAULT_TEST_OTP must contain exactly 6 digits when configured.');
 }
 
 export const config = {
   env: environment,
-  isDev: environment === 'development',
+  isDev: isLocalDevelopment,
   port: parseInt(process.env.PORT, 10) || 5001,
   baseUrl: process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`,
   
@@ -79,6 +83,7 @@ export const config = {
   
   otp: {
     defaultOtp: defaultTestOtp,
+    exposeTestOtp: isLocalDevelopment && process.env.EXPOSE_TEST_OTP?.trim().toLowerCase() === 'true',
     expiryMinutes: parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 10,
   },
 };

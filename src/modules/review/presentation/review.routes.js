@@ -12,7 +12,7 @@ export const createReviewRouter = ({ reviewController }) => {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     store: createRateLimitStore('public-review-create'),
-    passOnStoreError: false,
+    passOnStoreError: true,
     handler: (_req, res) => sendError(res, { message: 'Too many reviews submitted. Please try again later.', statusCode: 429 }),
   });
 

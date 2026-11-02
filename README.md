@@ -30,7 +30,7 @@ npm run dev
 
 Set `JWT_SECRET` to a private random string of at least 32 characters. Leave `MONGODB_URI` empty only for local demo mode; that mode uses process memory and seeded data, so writes disappear when the process restarts. Production requires a valid Atlas URI and fails startup without it.
 
-The default test OTP is available only in development. OTP requests return a generic message, and codes are HMAC-hashed in storage; the development delivery stub never logs or returns the code. Verification allows five guesses per OTP. Production rate limits are persisted in MongoDB and combine per-IP with per-login limits. No SMS/email delivery provider is configured yet, so requests outside development return `503` and production OTP sign-in is not ready.
+The default test OTP is available only in local development. OTP requests return a generic message, and codes are HMAC-hashed in storage; the development delivery stub never sends or logs the code. The API returns `test_otp` only when `EXPOSE_TEST_OTP=true`, and only in a local development process (never on Vercel). Verification allows five guesses per OTP. Production rate limits are persisted in MongoDB and combine per-IP with per-login limits. No SMS/email delivery provider is configured yet, so requests outside development return `503` and production OTP sign-in is not ready.
 
 Clinical assessment and progress photos now upload as Cloudinary `authenticated` assets and API responses use five-minute signed URLs. Existing photos uploaded before this change remain public until migrated. After connecting the Atlas URI, preview the existing asset count with `npm run media:migrate-clinical-private`; migrate assets and record metadata with `npm run media:migrate-clinical-private -- --apply`. The apply command changes Cloudinary delivery types and invalidates cached public URLs.
 
@@ -53,7 +53,8 @@ Keep `.env` private and out of Git. The current `.gitignore` excludes it. Render
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Cloudinary server credentials |
 | `CLOUDINARY_IMAGE_FOLDER`, `CLOUDINARY_VIDEO_FOLDER` | Cloudinary folders |
 | `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Firebase Admin service-account credentials for FCM |
-| `DEFAULT_TEST_OTP` | Development-only six-digit testing code |
+| `DEFAULT_TEST_OTP` | Local-only six-digit test code; ignored outside local development |
+| `EXPOSE_TEST_OTP` | Set to `true` only for a local development backend to include `test_otp` in the API response; forced off on Vercel |
 | `OTP_EXPIRY_MINUTES` | OTP validity window |
 
 ## API routes

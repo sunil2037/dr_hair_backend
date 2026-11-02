@@ -5,9 +5,22 @@ import { config } from '../../../config/env.js';
 import { isValidLogin, normalizeLogin } from '../../../shared/utils/normalize-login.js';
 
 export class SendOtpUseCase {
-  constructor({ otpRepository, smsService }) {
+  constructor({
+    otpRepository,
+    smsService,
+    environment = config.env,
+    defaultOtp = config.otp.defaultOtp,
+    exposeTestOtp = config.otp.exposeTestOtp,
+    jwtSecret = config.jwt.secret,
+    expiryMinutes = config.otp.expiryMinutes,
+  }) {
     this.otpRepository = otpRepository;
     this.smsService = smsService;
+    this.environment = environment;
+    this.defaultOtp = environment === 'development' ? defaultOtp : null;
+    this.exposeTestOtp = environment === 'development' && exposeTestOtp;
+    this.jwtSecret = jwtSecret;
+    this.expiryMinutes = expiryMinutes;
   }
 
   async execute({ login }) {
@@ -22,12 +35,12 @@ export class SendOtpUseCase {
 
     // The fixed code is confined to local development. Other environments use
     // an unpredictable value and require a real delivery provider.
-    const otpCode = config.otp.defaultOtp
-      ? config.otp.defaultOtp
+    const otpCode = this.defaultOtp
+      ? this.defaultOtp
       : String(randomInt(100000, 1000000));
     const otpHash = this._hashOtp(cleanLogin, otpCode);
 
-    const expiresAt = new Date(Date.now() + config.otp.expiryMinutes * 60 * 1000);
+    const expiresAt = new Date(Date.now() + this.expiryMinutes * 60 * 1000);
 
     const otpEntity = new Otp({
       login: cleanLogin,
@@ -45,11 +58,12 @@ export class SendOtpUseCase {
 
     return {
       message: 'If this destination can receive a code, a verification code has been sent.',
+      ...(this.exposeTestOtp && this.defaultOtp ? { testOtp: otpCode } : {}),
     };
   }
 
   _hashOtp(login, otp) {
-    return createHmac('sha256', config.jwt.secret)
+    return createHmac('sha256', this.jwtSecret)
       .update(`${login}:${otp}`)
       .digest('hex');
   }

@@ -14,7 +14,7 @@ export const createAdminAuthRouter = ({ adminAuthController }) => {
       standardHeaders: 'draft-8',
       legacyHeaders: false,
       store: createRateLimitStore('admin-login-ip'),
-      passOnStoreError: false,
+      passOnStoreError: true,
       handler: (_req, res) => sendError(res, { message: 'Too many admin login attempts. Try again later.', statusCode: 429 }),
     }),
     rateLimit({
@@ -23,7 +23,7 @@ export const createAdminAuthRouter = ({ adminAuthController }) => {
       standardHeaders: 'draft-8',
       legacyHeaders: false,
       store: createRateLimitStore('admin-login-id'),
-      passOnStoreError: false,
+      passOnStoreError: true,
       keyGenerator: (req) => createHash('sha256').update(String(req.body?.email || '').trim().toLowerCase()).digest('hex'),
       handler: (_req, res) => sendError(res, { message: 'Too many login attempts for this admin ID. Try again later.', statusCode: 429 }),
     }),
