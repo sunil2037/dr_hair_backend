@@ -34,7 +34,7 @@ describe('Admin video content', () => {
     assert.equal(savedVideo.provider, 'youtube');
     assert.equal(savedVideo.category, 'Hair Fall');
     assert.equal(savedVideo.placement, 'both');
-    assert.equal(savedVideo.secure_url, 'https://www.youtube-nocookie.com/embed/abcdefghijk');
+    assert.equal(savedVideo.secure_url, 'https://www.youtube.com/watch?v=abcdefghijk');
   });
 
   it('rejects unsupported placement values', async () => {
@@ -94,6 +94,58 @@ describe('Admin video content', () => {
     assert.equal(deletedId, 'drhair/videos/sample');
     assert.equal(res.statusCode, 200);
     assert.match(res.body.message, /deleted successfully/i);
+  });
+
+  it('updates video metadata and youtube link via API', async () => {
+    let targetId;
+    let appliedUpdates;
+    const controller = new VideoController({
+      videoRepository: {
+        updateVideo: async (id, updates) => {
+          targetId = id;
+          appliedUpdates = updates;
+          return { public_id: id, ...updates };
+        },
+      },
+    });
+    const res = responseRecorder();
+    await controller.updateVideo(
+      {
+        params: { publicId: 'youtube-7uC1_O7kZ8I' },
+        body: {
+          title: 'Updated Clinical Hair Care Title',
+          category: 'Regrowth',
+          placement: 'both',
+          status: 'published',
+          url: 'https://youtu.be/kJQP7kiw5Fk',
+        },
+      },
+      res,
+      (error) => { throw error; }
+    );
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(targetId, 'youtube-7uC1_O7kZ8I');
+    assert.equal(appliedUpdates.title, 'Updated Clinical Hair Care Title');
+    assert.equal(appliedUpdates.category, 'Regrowth');
+    assert.equal(appliedUpdates.placement, 'both');
+    assert.equal(appliedUpdates.status, 'published');
+    assert.equal(appliedUpdates.youtube_video_id, 'kJQP7kiw5Fk');
+    assert.match(res.body.message, /updated successfully/i);
+  });
+
+  it('purges legacy demo videos', async () => {
+    const controller = new VideoController({
+      videoRepository: {
+        purgeLegacyVideos: async () => ({ deletedCount: 5 }),
+      },
+    });
+    const res = responseRecorder();
+    await controller.purgeLegacyVideos({}, res, (error) => { throw error; });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.data.deletedCount, 5);
+    assert.match(res.body.message, /Purged 5 legacy\/demo video records/i);
   });
 
   it('verifies real repository chunk loading: page 1 has_more true, page 2 has_more false', async () => {

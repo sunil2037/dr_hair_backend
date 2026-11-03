@@ -35,6 +35,12 @@ export class CloudinaryImageStorage {
       overwrite: true,
       unique_filename: !publicId,
       type: deliveryType,
+      quality: 'auto:good',
+      fetch_format: 'auto',
+      flags: 'strip_profile',
+      width: 2048,
+      height: 2048,
+      crop: 'limit',
       ...(publicId ? { public_id: publicId } : {}),
     };
     return uploadBuffer(buffer, options);

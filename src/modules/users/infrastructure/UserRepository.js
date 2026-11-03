@@ -211,7 +211,7 @@ export class UserRepository extends IUserRepository {
       }
       const [records, total] = await Promise.all([
         UserModel.find(filter)
-          .select('id patient_code name email phone age gender city occupation platform profile_url role created_at')
+          .select('id patient_code name email phone age gender city occupation platform profile_url role status is_blocked blocked_at blocked_reason last_login_at created_at updated_at')
           .sort({ created_at: -1, id: -1 })
           .skip((safePage - 1) * safeLimit)
           .limit(safeLimit)
@@ -244,6 +244,21 @@ export class UserRepository extends IUserRepository {
       page: safePage,
       limit: safeLimit,
     };
+  }
+
+  async setStatus(id, { is_blocked, status, blocked_reason = null } = {}) {
+    const numericId = resolvePatientId(id);
+    if (!numericId) return null;
+    const finalBlocked = is_blocked !== undefined ? Boolean(is_blocked) : status === 'blocked';
+    const finalStatus = status || (finalBlocked ? 'blocked' : 'active');
+    const updateData = {
+      is_blocked: finalBlocked,
+      status: finalStatus,
+      blocked_at: finalBlocked ? new Date() : null,
+      blocked_reason: finalBlocked ? (blocked_reason || 'Administrative suspension') : null,
+      updated_at: new Date(),
+    };
+    return this.update(numericId, updateData);
   }
 
   async deleteAccount(id) {

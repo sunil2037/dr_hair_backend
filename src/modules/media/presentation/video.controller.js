@@ -86,7 +86,17 @@ export class VideoController {
 
   addYouTubeVideo = async (req, res, next) => {
     try {
-      const { url, title, description = '', category = 'Hair Care', placement = 'reels' } = req.body || {};
+      const {
+        url,
+        title,
+        description = '',
+        category = 'Hair Care',
+        placement = 'reels',
+        status = 'published',
+        author_name = 'Dr. Hair Specialist',
+        author_handle = '@drhair.clinic',
+        treatment = 'Clinical Hair Care Protocol',
+      } = req.body || {};
       if (typeof title !== 'string' || !title.trim() || title.trim().length > 160) {
         throw new BadRequestError('Video title is required and must be at most 160 characters.');
       }
@@ -95,6 +105,7 @@ export class VideoController {
       }
       if (typeof category !== 'string' || !category.trim() || category.trim().length > 80) throw new BadRequestError('Video category is required and must be at most 80 characters.');
       if (!['home', 'reels', 'both'].includes(placement)) throw new BadRequestError('placement must be home, reels, or both.');
+      const safeStatus = ['draft', 'published', 'hidden'].includes(status) ? status : 'published';
       const videoId = this.getYouTubeVideoId(url);
       const saved = await this.videoRepository.create({
         public_id: 'youtube-' + videoId,
@@ -102,18 +113,34 @@ export class VideoController {
         youtube_video_id: videoId,
         title: title.trim(),
         category: category.trim(),
+        tag: category.trim(),
         description: description.trim(),
+        author_name: typeof author_name === 'string' && author_name.trim() ? author_name.trim() : 'Dr. Hair Specialist',
+        author_handle: typeof author_handle === 'string' && author_handle.trim() ? author_handle.trim() : '@drhair.clinic',
+        treatment: typeof treatment === 'string' && treatment.trim() ? treatment.trim() : 'Clinical Hair Care Protocol',
         placement,
-        secure_url: 'https://www.youtube-nocookie.com/embed/' + videoId,
+        secure_url: 'https://www.youtube.com/watch?v=' + videoId,
         thumbnail_url: 'https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg',
         duration: null,
-        status: 'draft',
+        status: safeStatus,
         created_by: Number(req.user?.id) || null,
       });
       return sendSuccess(res, {
-        message: 'YouTube video saved as a draft.',
+        message: safeStatus === 'published' ? 'YouTube video published successfully.' : 'YouTube video saved as a draft.',
         data: saved,
         statusCode: 201,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  purgeLegacyVideos = async (req, res, next) => {
+    try {
+      const result = await this.videoRepository.purgeLegacyVideos();
+      return sendSuccess(res, {
+        message: `Purged ${result?.deletedCount || 0} legacy/demo video records.`,
+        data: result,
       });
     } catch (error) {
       next(error);
@@ -156,6 +183,37 @@ export class VideoController {
       if (category !== undefined) options.category = category;
       const result = await this.videoRepository.listPublished(options);
       return sendSuccess(res, { data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateVideo = async (req, res, next) => {
+    try {
+      const publicId = req.params?.publicId || req.body?.public_id;
+      if (typeof publicId !== 'string' || !publicId.trim()) {
+        throw new BadRequestError('public_id is required.');
+      }
+      const { title, category, description, placement, status, url, author_name, author_handle, treatment } = req.body || {};
+      const updates = {};
+      if (typeof title === 'string' && title.trim()) updates.title = title.trim();
+      if (typeof category === 'string' && category.trim()) updates.category = category.trim();
+      if (typeof description === 'string') updates.description = description.trim();
+      if (placement && ['home', 'reels', 'both'].includes(placement)) updates.placement = placement;
+      if (status && ['draft', 'published', 'hidden'].includes(status)) updates.status = status;
+      if (typeof author_name === 'string') updates.author_name = author_name.trim();
+      if (typeof author_handle === 'string') updates.author_handle = author_handle.trim();
+      if (typeof treatment === 'string') updates.treatment = treatment.trim();
+      if (url && typeof url === 'string' && url.trim()) {
+        const videoId = this.getYouTubeVideoId(url.trim());
+        updates.youtube_video_id = videoId;
+      }
+      const updated = await this.videoRepository.updateVideo(publicId.trim(), updates);
+      if (!updated) throw new NotFoundError('Video not found.');
+      return sendSuccess(res, {
+        message: 'Video updated successfully.',
+        data: updated,
+      });
     } catch (error) {
       next(error);
     }

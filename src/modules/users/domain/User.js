@@ -17,6 +17,11 @@ export class User {
     platform = 'app',
     profile_url = null,
     role = 'user',
+    status = 'active',
+    is_blocked = false,
+    blocked_at = null,
+    blocked_reason = null,
+    last_login_at = null,
     created_at = new Date(),
     updated_at = new Date(),
   }) {
@@ -32,6 +37,11 @@ export class User {
     this.platform = platform;
     this.profile_url = profile_url;
     this.role = role;
+    this.status = status || (is_blocked ? 'blocked' : 'active');
+    this.is_blocked = Boolean(is_blocked || status === 'blocked');
+    this.blocked_at = blocked_at ? new Date(blocked_at) : null;
+    this.blocked_reason = blocked_reason || null;
+    this.last_login_at = last_login_at ? new Date(last_login_at) : null;
     this.created_at = created_at;
     this.updated_at = updated_at;
   }
@@ -49,6 +59,13 @@ export class User {
       occupation: this.occupation,
       platform: this.platform,
       profile_url: this.profile_url,
+      role: this.role,
+      status: this.status,
+      is_blocked: this.is_blocked,
+      blocked_at: this.blocked_at,
+      blocked_reason: this.blocked_reason,
+      last_login_at: this.last_login_at,
+      created_at: this.created_at,
     };
   }
 

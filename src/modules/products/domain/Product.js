@@ -103,9 +103,24 @@ export class Product {
           },
         ];
 
-    const rawImages = payload.images || (payload.media ? payload.media.map((m) => m.name || m.url).filter(Boolean) : []);
-    const images = Array.isArray(rawImages) && rawImages.length
-      ? rawImages
+    const extractedImages = [];
+    if (Array.isArray(payload.images)) {
+      for (const img of payload.images) {
+        if (typeof img === 'string' && (img.startsWith('http://') || img.startsWith('https://'))) {
+          extractedImages.push(img.trim());
+        }
+      }
+    }
+    if (Array.isArray(payload.media)) {
+      for (const m of payload.media) {
+        const u = m?.url || m?.secure_url || m?.name;
+        if (typeof u === 'string' && (u.startsWith('http://') || u.startsWith('https://')) && !extractedImages.includes(u.trim())) {
+          extractedImages.push(u.trim());
+        }
+      }
+    }
+    const images = extractedImages.length > 0
+      ? extractedImages
       : ['https://res.cloudinary.com/demo/image/upload/sample.jpg'];
 
     return new Product({

@@ -21,21 +21,30 @@ export class VideoRepository {
     try {
       const existingCount = await VideoModel.countDocuments();
       if (existingCount === 0 && store.videos && store.videos.length > 0) {
-        await VideoModel.insertMany(store.videos).catch(() => {});
-        return;
-      }
-      const brokenCount = await VideoModel.countDocuments({
-        secure_url: { $regex: 'sample\\.mp4' },
-      });
-      if (brokenCount > 0) {
-        for (const item of store.videos) {
-          await VideoModel.updateOne(
-            { public_id: item.public_id },
-            { $set: { secure_url: item.secure_url, thumbnail_url: item.thumbnail_url } },
-          ).catch(() => {});
+        const cleanVideos = store.videos.filter((v) => v.provider === 'youtube');
+        if (cleanVideos.length > 0) {
+          await VideoModel.insertMany(cleanVideos).catch(() => {});
         }
       }
     } catch (_) {}
+  }
+
+  async purgeLegacyVideos() {
+    if (isMongoConnected()) {
+      const result = await VideoModel.deleteMany({
+        $or: [
+          { provider: 'cloudinary' },
+          { provider: { $ne: 'youtube' } },
+          { secure_url: { $regex: /(sample|elephants|dog|finish_line|ski_jump|football|walking)\.mp4/i } },
+        ],
+      });
+      return { deletedCount: result.deletedCount || 0 };
+    }
+    const initialCount = store.videos.length;
+    store.videos = store.videos.filter(
+      (v) => v.provider === 'youtube' && !/(sample|elephants|dog|finish_line|ski_jump|football|walking)\.mp4/i.test(v.secure_url || '')
+    );
+    return { deletedCount: initialCount - store.videos.length };
   }
 
   async listPublished({ page = 1, limit = 10, placement, category } = {}) {
@@ -101,24 +110,69 @@ export class VideoRepository {
   async updateStatus(publicId, status) {
     if (isMongoConnected()) {
       return VideoModel.findOneAndUpdate(
-        { public_id: publicId },
+        { $or: [{ public_id: publicId }, { youtube_video_id: publicId }, { id: publicId }] },
         { status, updated_at: new Date() },
         { new: true, runValidators: true },
       ).lean();
     }
-    const record = store.videos.find((video) => video.public_id === publicId);
+    const record = store.videos.find((video) => video.public_id === publicId || video.youtube_video_id === publicId || video.id === publicId);
     if (!record) return null;
     record.status = status;
     record.updated_at = new Date().toISOString();
     return record;
   }
 
+  async updateVideo(publicId, updates = {}) {
+    const filter = {
+      $or: [{ public_id: publicId }, { youtube_video_id: publicId }, { id: publicId }],
+    };
+    const allowed = {};
+    if (updates.title) allowed.title = updates.title.trim();
+    if (updates.category) {
+      allowed.category = updates.category.trim();
+      allowed.tag = updates.category.trim();
+    }
+    if (updates.description !== undefined) allowed.description = updates.description.trim();
+    if (updates.placement) allowed.placement = updates.placement;
+    if (updates.status) allowed.status = updates.status;
+    if (updates.author_name) allowed.author_name = updates.author_name.trim();
+    if (updates.author_handle) allowed.author_handle = updates.author_handle.trim();
+    if (updates.treatment) allowed.treatment = updates.treatment.trim();
+    if (updates.youtube_video_id) {
+      allowed.youtube_video_id = updates.youtube_video_id;
+      allowed.secure_url = 'https://www.youtube.com/watch?v=' + updates.youtube_video_id;
+      allowed.thumbnail_url = 'https://i.ytimg.com/vi/' + updates.youtube_video_id + '/hqdefault.jpg';
+    } else if (updates.secure_url) {
+      allowed.secure_url = updates.secure_url;
+    }
+    if (updates.thumbnail_url) allowed.thumbnail_url = updates.thumbnail_url;
+    allowed.updated_at = isMongoConnected() ? new Date() : new Date().toISOString();
+
+    if (isMongoConnected()) {
+      return VideoModel.findOneAndUpdate(
+        filter,
+        { $set: allowed },
+        { new: true, runValidators: true },
+      ).lean();
+    }
+    const record = store.videos.find(
+      (video) => video.public_id === publicId || video.youtube_video_id === publicId || video.id === publicId,
+    );
+    if (!record) return null;
+    Object.assign(record, allowed);
+    return record;
+  }
+
   async delete(publicId) {
     if (isMongoConnected()) {
-      const result = await VideoModel.deleteOne({ public_id: publicId });
+      const result = await VideoModel.deleteOne({
+        $or: [{ public_id: publicId }, { youtube_video_id: publicId }, { id: publicId }],
+      });
       return result.deletedCount > 0;
     }
-    const index = store.videos.findIndex((video) => video.public_id === publicId);
+    const index = store.videos.findIndex(
+      (video) => video.public_id === publicId || video.youtube_video_id === publicId || video.id === publicId,
+    );
     if (index === -1) return false;
     store.videos.splice(index, 1);
     return true;

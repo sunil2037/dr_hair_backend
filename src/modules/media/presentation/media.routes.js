@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { authenticateToken } from '../../../shared/middlewares/auth.middleware.js';
 import { requireRegisteredUser } from '../../../shared/middlewares/registered-user.middleware.js';
-import { requireSuperAdmin } from '../../../shared/middlewares/admin.middleware.js';
+import { requireSuperAdmin, requireAnyPermission } from '../../../shared/middlewares/admin.middleware.js';
 import { uploadMediaFiles } from '../../../shared/middlewares/media-upload.middleware.js';
 import { createRateLimitStore } from '../../../shared/middlewares/rate-limit-store.js';
 
@@ -31,7 +31,7 @@ export const createMediaRouter = ({ mediaController }) => {
     (req, res, next) => req.user?.role === 'super_admin'
       ? next()
       : req.user?.role === 'admin'
-        ? requireSuperAdmin(req, res, next)
+        ? requireAnyPermission('products.manage', 'content.manage')(req, res, next)
         : requireRegisteredUser(req, res, next),
     mediaUploadLimiter,
     mediaUploadAccountLimiter,
@@ -44,7 +44,7 @@ export const createMediaRouter = ({ mediaController }) => {
     (req, res, next) => req.user?.role === 'super_admin'
       ? next()
       : req.user?.role === 'admin'
-        ? requireSuperAdmin(req, res, next)
+        ? requireAnyPermission('products.manage', 'content.manage')(req, res, next)
         : requireRegisteredUser(req, res, next),
     mediaUploadLimiter,
     mediaUploadAccountLimiter,
