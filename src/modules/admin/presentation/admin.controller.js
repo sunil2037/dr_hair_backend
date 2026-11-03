@@ -236,6 +236,88 @@ export class AdminController {
     }
   };
 
+  setUserStatus = async (req, res, next) => {
+    try {
+      const patientId = req.params.userId;
+      const current = await this.userRepository.findById(patientId);
+      if (!current || current.role !== 'user') throw new NotFoundError('Patient not found.');
+
+      const { is_blocked, status, reason } = req.body || {};
+      const shouldBlock = is_blocked !== undefined ? Boolean(is_blocked) : status === 'blocked';
+      const newStatus = status || (shouldBlock ? 'blocked' : 'active');
+
+      const updated = await this.userRepository.setStatus(patientId, {
+        is_blocked: shouldBlock,
+        status: newStatus,
+        blocked_reason: reason || (shouldBlock ? 'Administrative suspension' : null),
+      });
+
+      if (shouldBlock && this.sessionRepository?.revokeAllForUser) {
+        await this.sessionRepository.revokeAllForUser(current.id, 'ACCOUNT_BLOCKED');
+      }
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor: String(req.user?.name || req.user?.email || 'Super Admin'),
+          action: shouldBlock ? 'user.blocked' : 'user.unblocked',
+          target: current.patient_code || `patient_${current.id}`,
+          targetType: 'User',
+          details: {
+            patientId: current.id,
+            name: current.name,
+            phone: current.phone,
+            is_blocked: shouldBlock,
+            status: newStatus,
+            reason: reason || null,
+          },
+        });
+      }
+
+      return sendSuccess(res, {
+        message: shouldBlock ? 'Patient account has been blocked.' : 'Patient account has been unblocked.',
+        data: updated ? updated.toPublicProfile() : null,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteUser = async (req, res, next) => {
+    try {
+      const patientId = req.params.userId;
+      const current = await this.userRepository.findById(patientId);
+      if (!current || current.role !== 'user') throw new NotFoundError('Patient not found.');
+
+      const deleted = await this.userRepository.deleteAccount(patientId);
+      if (!deleted) throw new NotFoundError('Patient account could not be found or was already deleted.');
+
+      if (this.sessionRepository?.revokeAllForUser) {
+        await this.sessionRepository.revokeAllForUser(current.id, 'ACCOUNT_DELETED');
+      }
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor: String(req.user?.name || req.user?.email || 'Super Admin'),
+          action: 'user.deleted',
+          target: current.patient_code || `patient_${current.id}`,
+          targetType: 'User',
+          details: {
+            patientId: current.id,
+            name: current.name,
+            phone: current.phone,
+          },
+        });
+      }
+
+      return sendSuccess(res, {
+        message: 'Patient account has been permanently deleted.',
+        data: { id: current.id, patient_code: current.patient_code },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   uploadPatientReport = async (req, res, next) => {
     let uploadedAsset;
     try {

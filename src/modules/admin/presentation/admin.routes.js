@@ -43,6 +43,8 @@ export const createAdminRouter = ({ adminController, notificationController, vid
   router.get('/users/:userId', requireAnyPermission('patients.view', 'patients.lookup'), adminController.getPatient);
   router.get('/users/:userId/archive', requireSuperAdmin, adminController.getPatientArchive);
   router.patch('/users/:userId', requireSuperAdmin, adminController.updatePatient);
+  router.patch('/users/:userId/status', requireSuperAdmin, adminController.setUserStatus);
+  router.delete('/users/:userId', requireSuperAdmin, adminController.deleteUser);
 
   // Clinical reports
   router.post('/users/:userId/reports', requireAnyPermission('documents.upload', 'reports.approve'), uploadClinicalReportFile, adminController.uploadPatientReport);

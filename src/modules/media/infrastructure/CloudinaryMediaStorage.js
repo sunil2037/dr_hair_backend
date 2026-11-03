@@ -3,7 +3,7 @@ import { BadRequestError, NotFoundError, PayloadTooLargeError } from '../../../s
 import { config } from '../../../config/env.js';
 import { getCloudinaryClient } from './CloudinaryVideoStorage.js';
 
-const mediaPurposes = new Set(['general', 'profile', 'assessment', 'progress', 'content']);
+const mediaPurposes = new Set(['general', 'profile', 'assessment', 'progress', 'content', 'product']);
 
 export class CloudinaryMediaStorage {
   async deleteOwnedOrphan({ publicId, resourceType, ownerId, isAdmin }) {
@@ -38,7 +38,7 @@ export class CloudinaryMediaStorage {
     const purposeHeader = req.headers['x-media-purpose'];
     const purpose = typeof purposeHeader === 'string' ? purposeHeader.trim().toLowerCase() : 'general';
     if (!mediaPurposes.has(purpose)) {
-      callback(new BadRequestError('X-Media-Purpose must be general, profile, assessment, progress, or content.'));
+      callback(new BadRequestError('X-Media-Purpose must be general, profile, assessment, progress, content, or product.'));
       return;
     }
     if (purpose === 'profile' && resourceType !== 'image') {

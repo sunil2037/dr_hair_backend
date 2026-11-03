@@ -1,11 +1,13 @@
-import { UnauthorizedError } from '../errors/index.js';
+import { UnauthorizedError, ForbiddenError } from '../errors/index.js';
 import { TokenService } from '../utils/token.service.js';
 import { SessionRepository } from '../../modules/auth/infrastructure/SessionRepository.js';
 import { AdminAccountRepository } from '../../modules/admin/infrastructure/AdminAccountRepository.js';
+import { UserRepository } from '../../modules/users/infrastructure/UserRepository.js';
 import { getEffectivePermissions } from '../utils/admin-permissions.js';
 
 const sessionRepository = new SessionRepository();
 const adminAccountRepository = new AdminAccountRepository();
+const userRepository = new UserRepository();
 
 export const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers.authorization || req.headers.Authorization;
@@ -42,6 +44,28 @@ export const authenticateToken = async (req, res, next) => {
       return next(new UnauthorizedError('Admin account has been suspended or deactivated.', null, 'AUTH_REQUIRED'));
     }
     decoded.permissions = getEffectivePermissions(account);
+  }
+
+  // Check if patient user account is active / not deleted / not blocked
+  if (decoded.role === 'user' && decoded.id) {
+    const user = await userRepository.findById(decoded.id);
+    if (!user) {
+      return next(new UnauthorizedError('Your account has been deleted by clinic administration.', null, 'ACCOUNT_DELETED'));
+    }
+    if (user.is_blocked || user.status === 'blocked') {
+      return next(
+        new ForbiddenError(
+          'Your account has been suspended by clinic administration. To regain access, please contact Dr. Hair Clinic Support at support@drhair.in or call +91-9876543210.',
+          {
+            unblock_method: 'contact_support',
+            support_email: 'support@drhair.in',
+            support_phone: '+91-9876543210',
+            blocked_reason: user.blocked_reason || 'Administrative suspension',
+          },
+          'ACCOUNT_BLOCKED',
+        ),
+      );
+    }
   }
 
   // Attach decoded user information to request object

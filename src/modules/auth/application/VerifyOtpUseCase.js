@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index.js';
+import { BadRequestError, UnauthorizedError, ForbiddenError } from '../../../shared/errors/index.js';
 import { TokenService } from '../../../shared/utils/token.service.js';
 import { config } from '../../../config/env.js';
 import { isValidLogin, normalizeLogin } from '../../../shared/utils/normalize-login.js';
@@ -41,6 +41,23 @@ export class VerifyOtpUseCase {
 
     // Check if user exists in database
     const user = await this.userRepository.findByLogin(cleanLogin);
+    if (user && (user.is_blocked || user.status === 'blocked')) {
+      throw new ForbiddenError(
+        'Your account has been suspended by clinic administration. To regain access, please contact Dr. Hair Clinic Support at support@drhair.in or call +91-9876543210.',
+        {
+          unblock_method: 'contact_support',
+          support_email: 'support@drhair.in',
+          support_phone: '+91-9876543210',
+          blocked_reason: user.blocked_reason || 'Administrative suspension',
+        },
+        'ACCOUNT_BLOCKED',
+      );
+    }
+
+    if (user) {
+      await this.userRepository.update(user.id, { last_login_at: new Date() }).catch(() => {});
+    }
+
     // Generate JWT auth token
     const tokenPayload = user
       ? {
