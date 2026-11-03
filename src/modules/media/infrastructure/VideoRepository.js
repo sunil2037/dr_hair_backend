@@ -123,8 +123,16 @@ export class VideoRepository {
   }
 
   async updateVideo(publicId, updates = {}) {
+    const rawId = String(publicId).trim();
+    const cleanYt = rawId.replace(/^youtube-/, '');
     const filter = {
-      $or: [{ public_id: publicId }, { youtube_video_id: publicId }, { id: publicId }],
+      $or: [
+        { public_id: rawId },
+        { public_id: 'youtube-' + cleanYt },
+        { youtube_video_id: rawId },
+        { youtube_video_id: cleanYt },
+        { id: rawId },
+      ],
     };
     const allowed = {};
     if (updates.title) allowed.title = updates.title.trim();
@@ -156,7 +164,12 @@ export class VideoRepository {
       ).lean();
     }
     const record = store.videos.find(
-      (video) => video.public_id === publicId || video.youtube_video_id === publicId || video.id === publicId,
+      (video) =>
+        video.public_id === rawId ||
+        video.public_id === 'youtube-' + cleanYt ||
+        video.youtube_video_id === rawId ||
+        video.youtube_video_id === cleanYt ||
+        video.id === rawId,
     );
     if (!record) return null;
     Object.assign(record, allowed);
@@ -164,14 +177,28 @@ export class VideoRepository {
   }
 
   async delete(publicId) {
+    const rawId = String(publicId).trim();
+    const cleanYt = rawId.replace(/^youtube-/, '');
+    const filter = {
+      $or: [
+        { public_id: rawId },
+        { public_id: 'youtube-' + cleanYt },
+        { youtube_video_id: rawId },
+        { youtube_video_id: cleanYt },
+        { id: rawId },
+      ],
+    };
     if (isMongoConnected()) {
-      const result = await VideoModel.deleteOne({
-        $or: [{ public_id: publicId }, { youtube_video_id: publicId }, { id: publicId }],
-      });
+      const result = await VideoModel.deleteOne(filter);
       return result.deletedCount > 0;
     }
     const index = store.videos.findIndex(
-      (video) => video.public_id === publicId || video.youtube_video_id === publicId || video.id === publicId,
+      (video) =>
+        video.public_id === rawId ||
+        video.public_id === 'youtube-' + cleanYt ||
+        video.youtube_video_id === rawId ||
+        video.youtube_video_id === cleanYt ||
+        video.id === rawId,
     );
     if (index === -1) return false;
     store.videos.splice(index, 1);

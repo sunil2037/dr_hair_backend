@@ -190,7 +190,7 @@ export class VideoController {
 
   updateVideo = async (req, res, next) => {
     try {
-      const publicId = req.params?.publicId || req.body?.public_id;
+      const publicId = req.params?.publicId || req.body?.public_id || req.body?.id;
       if (typeof publicId !== 'string' || !publicId.trim()) {
         throw new BadRequestError('public_id is required.');
       }
@@ -207,6 +207,8 @@ export class VideoController {
       if (url && typeof url === 'string' && url.trim()) {
         const videoId = this.getYouTubeVideoId(url.trim());
         updates.youtube_video_id = videoId;
+        updates.secure_url = 'https://www.youtube.com/watch?v=' + videoId;
+        updates.thumbnail_url = 'https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg';
       }
       const updated = await this.videoRepository.updateVideo(publicId.trim(), updates);
       if (!updated) throw new NotFoundError('Video not found.');
