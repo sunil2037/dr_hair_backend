@@ -1921,10 +1921,12 @@ components:
         status: { type: boolean, const: true }
         message: { type: string }
         token: { type: string }
+        refresh_token: { type: string }
+        session_id: { type: string }
         is_registered: { type: boolean }
         is_admin: { type: boolean }
         data: {}
-      required: [status, message, token, is_registered, is_admin]
+      required: [status, message, token, refresh_token, session_id, is_registered, is_admin]
     ProfileUpdateRequest:
       type: object
       properties:
