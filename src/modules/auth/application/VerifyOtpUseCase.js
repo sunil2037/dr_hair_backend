@@ -69,9 +69,12 @@ export class VerifyOtpUseCase {
         };
 
     let session = null;
-    if (this.sessionRepository && user) {
+    if (this.sessionRepository) {
       session = await this.sessionRepository.create({
-        userId: user.id,
+        // Keep a new patient's OTP session revocable during profile
+        // completion. It is replaced with the real patient session after
+        // registration.
+        userId: user ? user.id : `pending:${cleanLogin}`,
         userType: 'patient',
         deviceMetadata,
       });
@@ -91,4 +94,3 @@ export class VerifyOtpUseCase {
     };
   }
 }
-

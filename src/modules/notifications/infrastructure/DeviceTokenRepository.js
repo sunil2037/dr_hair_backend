@@ -43,6 +43,75 @@ export class DeviceTokenRepository {
     return store.deviceTokens || [];
   }
 
+  async getAudienceUserIds(audience) {
+    const cleanAudience = String(audience || 'All app users').trim();
+    if (cleanAudience === 'All app users' || cleanAudience === 'all') {
+      return null; // indicates all users
+    }
+
+    if (cleanAudience === 'Active patients') {
+      if (isMongoConnected()) {
+        const { HairTestModel, AppointmentModel, ProgressCheckInModel } = await import('../../../shared/database/models.js');
+        const [testUsers, aptUsers, checkInUsers] = await Promise.all([
+          HairTestModel.distinct('userId', { userId: { $ne: null } }),
+          AppointmentModel.distinct('userId', { userId: { $ne: null } }),
+          ProgressCheckInModel.distinct('userId', { userId: { $ne: null } }),
+        ]);
+        const set = new Set([...testUsers, ...aptUsers, ...checkInUsers].filter(Boolean));
+        return Array.from(set);
+      }
+      const testUsers = (store.hairTests || []).map((t) => t.userId).filter(Boolean);
+      const aptUsers = (store.appointments || []).map((a) => a.userId).filter(Boolean);
+      const checkInUsers = (store.progressCheckIns || []).map((p) => p.userId).filter(Boolean);
+      return Array.from(new Set([...testUsers, ...aptUsers, ...checkInUsers]));
+    }
+
+    if (cleanAudience === 'Patients with a shared report') {
+      if (isMongoConnected()) {
+        const { ClinicalReportModel } = await import('../../../shared/database/models.js');
+        const reportUsers = await ClinicalReportModel.distinct('userId', {
+          userId: { $ne: null },
+          $or: [{ is_shared: true }, { visibility: 'shared' }],
+        });
+        return Array.from(new Set(reportUsers.filter(Boolean)));
+      }
+      const reportUsers = (store.clinicalReports || [])
+        .filter((r) => r.is_shared === true || r.visibility === 'shared')
+        .map((r) => r.userId)
+        .filter(Boolean);
+      return Array.from(new Set(reportUsers));
+    }
+
+    return null;
+  }
+
+  async listByAudience(audience) {
+    const userIds = await this.getAudienceUserIds(audience);
+    if (userIds === null) {
+      return this.listAll();
+    }
+    if (userIds.length === 0) {
+      return [];
+    }
+
+    if (isMongoConnected()) {
+      return DeviceTokenModel.find({ userId: { $in: userIds } }).lean();
+    }
+    const idSet = new Set(userIds.map(Number));
+    return (store.deviceTokens || []).filter((record) => idSet.has(Number(record.userId)));
+  }
+
+  async countByAudience(audience) {
+    const tokens = await this.listByAudience(audience);
+    const uniqueUsers = new Set(tokens.map((t) => Number(t.userId)).filter(Boolean));
+    return {
+      audience: String(audience || 'All app users'),
+      tokenCount: tokens.length,
+      userCount: uniqueUsers.size,
+      targetCount: tokens.length,
+    };
+  }
+
   async remove({ userId, token }) {
     const numericId = Number(userId);
     if (isMongoConnected()) {

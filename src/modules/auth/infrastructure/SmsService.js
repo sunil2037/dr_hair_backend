@@ -84,21 +84,6 @@ export class SmsService {
         ? data.message.join(', ')
         : data?.message || 'Gateway rejected SMS request';
 
-      const isFast2SmsVerificationPending =
-        data?.status_code === 411 ||
-        (typeof errMsg === 'string' &&
-          (errMsg.includes('website verification') ||
-            errMsg.includes('OTP Message menu') ||
-            errMsg.includes('complete one transaction')));
-
-      if (isFast2SmsVerificationPending) {
-        this.pendingVerification = true;
-        logger.warn(
-          `[Fast2SMS] Provider portal verification/activation is pending (${errMsg}). Simulating SMS dispatch for testing.`
-        );
-        return true;
-      }
-
       logger.error(`[Fast2SMS] Gateway error for ${maskDestination(phone10)}: ${errMsg}`);
       throw new BadGatewayError(`SMS delivery failed: ${errMsg}`);
     } catch (err) {

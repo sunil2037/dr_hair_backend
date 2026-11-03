@@ -103,3 +103,4 @@ export function hasPermission(account, permission) {
   const effective = getEffectivePermissions(account);
   return effective.includes(permission);
 }
+

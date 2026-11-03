@@ -20,6 +20,9 @@ import { MediaReferenceRepository } from './modules/media/infrastructure/MediaRe
 import { PatientArchiveService } from './modules/admin/application/PatientArchiveService.js';
 import { SessionRepository } from './modules/auth/infrastructure/SessionRepository.js';
 import { AuditEventRepository } from './modules/admin/infrastructure/AuditEventRepository.js';
+import { CampaignRepository } from './modules/notifications/infrastructure/CampaignRepository.js';
+import { CampaignSchedulerService } from './modules/notifications/application/CampaignSchedulerService.js';
+import { ContentRepository } from './modules/content/infrastructure/ContentRepository.js';
 
 // Use Cases
 import { SendOtpUseCase } from './modules/auth/application/SendOtpUseCase.js';
@@ -63,6 +66,7 @@ import { AdminController } from './modules/admin/presentation/admin.controller.j
 import { AdminAuthController } from './modules/admin/presentation/admin-auth.controller.js';
 import { PatientClinicalController } from './modules/patient/presentation/patient-clinical.controller.js';
 import { AppointmentController } from './modules/appointments/presentation/appointment.controller.js';
+import { ContentController } from './modules/content/presentation/content.controller.js';
 
 // Routers
 import { createAuthRouter } from './modules/auth/presentation/auth.routes.js';
@@ -79,6 +83,7 @@ import { createMediaRouter } from './modules/media/presentation/media.routes.js'
 import { createAdminRouter } from './modules/admin/presentation/admin.routes.js';
 import { createAdminAuthRouter } from './modules/admin/presentation/admin-auth.routes.js';
 import { createPatientClinicalRouter } from './modules/patient/presentation/patient-clinical.routes.js';
+import { createContentRouter } from './modules/content/presentation/content.routes.js';
 
 /**
  * Dependency Injection Container
@@ -108,6 +113,16 @@ export const createContainer = (overrides = {}) => {
   const imageStorage = overrides.imageStorage || new CloudinaryImageStorage();
   const sessionRepository = overrides.sessionRepository || new SessionRepository();
   const auditEventRepository = overrides.auditEventRepository || new AuditEventRepository();
+  const campaignRepository = overrides.campaignRepository || new CampaignRepository();
+  const contentRepository = overrides.contentRepository || new ContentRepository();
+  const campaignSchedulerService =
+    overrides.campaignSchedulerService ||
+    new CampaignSchedulerService({
+      campaignRepository,
+      deviceTokenRepository,
+      notificationRepository,
+      auditEventRepository,
+    });
 
   // 2. Application Layer (Use Cases)
   const sendOtpUseCase = new SendOtpUseCase({
@@ -200,6 +215,7 @@ export const createContainer = (overrides = {}) => {
     updateProfileUseCase,
     updateProfilePictureUseCase,
     deleteAccountUseCase,
+    sessionRepository,
   });
 
   const hairTestController = new HairTestController({
@@ -215,7 +231,14 @@ export const createContainer = (overrides = {}) => {
     getReviewsUseCase,
     createReviewUseCase,
   });
-  const notificationController = new NotificationController({ deviceTokenRepository, notificationRepository });
+  const notificationController = new NotificationController({
+    deviceTokenRepository,
+    notificationRepository,
+    campaignRepository,
+    campaignSchedulerService,
+    auditEventRepository,
+  });
+  const contentController = new ContentController({ contentRepository, auditEventRepository });
   const videoController = new VideoController({ videoRepository });
   const productController = new ProductController({
     listProductsUseCase,
@@ -251,6 +274,7 @@ export const createContainer = (overrides = {}) => {
     patientActivityRepository,
     progressCheckInRepository,
     imageStorage,
+    submitHairTestUseCase,
   });
   const mediaController = new MediaController({ mediaReferenceRepository });
   const adminController = new AdminController({
@@ -279,11 +303,13 @@ export const createContainer = (overrides = {}) => {
   const productRouters = createProductRouters({ productController });
   const cartRouter = createCartRouter({ cartController });
   const mediaRouter = createMediaRouter({ mediaController });
+  const contentRouter = createContentRouter({ contentController });
   const adminRouter = createAdminRouter({
     adminController,
     notificationController,
     videoController,
     appointmentController,
+    contentController,
   });
   const adminAuthRouter = createAdminAuthRouter({ adminAuthController });
   const patientClinicalRouter = createPatientClinicalRouter({ patientClinicalController, appointmentController });
@@ -307,12 +333,15 @@ export const createContainer = (overrides = {}) => {
       mediaReferenceRepository,
       adminAccountRepository,
       sessionRepository,
+      campaignRepository,
+      contentRepository,
       auditEventRepository,
     },
     services: {
       smsService,
       imageStorage,
       patientArchiveService,
+      campaignSchedulerService,
     },
     useCases: {
       sendOtpUseCase,
@@ -357,6 +386,7 @@ export const createContainer = (overrides = {}) => {
       adminAuthController,
       appointmentController,
       patientClinicalController,
+      contentController,
     },
     routers: {
       authRouter,
@@ -374,7 +404,7 @@ export const createContainer = (overrides = {}) => {
       adminRouter,
       adminAuthRouter,
       patientClinicalRouter,
+      contentRouter,
     },
   };
 };
-

@@ -38,6 +38,18 @@ export const createAuthRouter = ({ authController }) => {
   const sendOtpIdentityLimiter = createLoginLimiter(5, 'otp-send-login', 'Too many OTP requests for this account. Please try again in 15 minutes.');
   const verifyOtpLimiter = createOtpLimiter(30, 'Too many OTP verification attempts. Please try again in 15 minutes.', 'otp-verify-ip');
   const verifyOtpIdentityLimiter = createLoginLimiter(10, 'otp-verify-login', 'Too many OTP verification attempts for this account. Please request a new code later.');
+  const refreshLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 30,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    store: createRateLimitStore('auth-refresh-ip'),
+    passOnStoreError: true,
+    handler: (req, res) => sendError(res, {
+      message: 'Too many session refresh attempts. Please try again later.',
+      statusCode: 429,
+    }),
+  });
 
   // Legacy & Flutter App routes:
   // POST /auth/send_login_otp
@@ -47,9 +59,8 @@ export const createAuthRouter = ({ authController }) => {
   router.post('/verify_login_otp', verifyOtpLimiter, parseFormData, verifyOtpIdentityLimiter, authController.verifyLoginOtp);
   router.get('/session', authenticateToken, authController.getSession);
   router.get('/me', authenticateToken, authController.getSession);
-  router.post('/refresh', authController.refreshToken);
-  router.post('/logout', authController.logout);
+  router.post('/refresh', refreshLimiter, authController.refreshToken);
+  router.post('/logout', authenticateToken, authController.logout);
 
   return router;
 };
-

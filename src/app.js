@@ -209,6 +209,7 @@ export const createApp = () => {
   app.use('/api/v1/admin/products', container.routers.productAdminRouter);
   app.use('/api/v1/cart', container.routers.cartRouter);
   app.use('/cart', container.routers.cartRouter);
+  app.use('/api/v1/content', container.routers.contentRouter);
   app.use('/api/v1/admin', container.routers.adminRouter);
   app.use('/api/v1/patient', container.routers.patientClinicalRouter);
 

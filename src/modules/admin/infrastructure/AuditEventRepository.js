@@ -5,6 +5,7 @@ import { store } from '../../../shared/database/store.js';
 
 export class AuditEventRepository {
   async record({
+    actor,
     actorId = 'system',
     actorName = 'System',
     actorEmail = '',
@@ -13,22 +14,28 @@ export class AuditEventRepository {
     targetType = '',
     action,
     details = {},
+    metadata = {},
     ip = '',
     userAgent = '',
   }) {
     const id = `aud_${crypto.randomBytes(12).toString('hex')}`;
     const timestamp = new Date();
 
+    const mergedDetails = details && Object.keys(details).length > 0 ? details : (metadata || {});
+    const resolvedActor = String(actor || actorEmail || actorName || 'system');
+
     const event = {
       id,
+      actor: resolvedActor,
       actorId: String(actorId),
       actorName: String(actorName),
-      actorEmail: String(actorEmail),
+      actorEmail: String(actorEmail || actor || ''),
       actorRole: String(actorRole),
       target: String(target || 'system'),
       targetType: String(targetType || ''),
       action: String(action),
-      details: details || {},
+      details: mergedDetails,
+      metadata: mergedDetails,
       ip: String(ip || ''),
       userAgent: String(userAgent || ''),
       created_at: timestamp,

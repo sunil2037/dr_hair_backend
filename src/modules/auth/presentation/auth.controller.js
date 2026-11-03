@@ -141,6 +141,10 @@ export class AuthController {
       const sessionId = req.body?.session_id || req.body?.sessionId || req.user?.sessionId;
       const deviceToken = req.body?.device_token || req.body?.deviceToken;
 
+      if (sessionId && sessionId !== req.user?.sessionId) {
+        throw new UnauthorizedError('The session does not belong to this access token.', null, 'AUTH_REQUIRED');
+      }
+
       if (sessionId && this.sessionRepository) {
         await this.sessionRepository.revoke(sessionId, 'USER_LOGOUT');
       }
@@ -206,4 +210,3 @@ export class AuthController {
     }
   };
 }
-

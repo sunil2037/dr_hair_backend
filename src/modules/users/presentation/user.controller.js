@@ -9,6 +9,7 @@ export class UserController {
     updateProfileUseCase,
     updateProfilePictureUseCase,
     deleteAccountUseCase,
+    sessionRepository,
   }) {
     this.checkUserUseCase = checkUserUseCase;
     this.registerUserUseCase = registerUserUseCase;
@@ -16,6 +17,7 @@ export class UserController {
     this.updateProfileUseCase = updateProfileUseCase;
     this.updateProfilePictureUseCase = updateProfilePictureUseCase;
     this.deleteAccountUseCase = deleteAccountUseCase;
+    this.sessionRepository = sessionRepository;
   }
 
   checkUser = async (req, res, next) => {
@@ -46,7 +48,21 @@ export class UserController {
         userId: req.user?.id,
       });
       const login = req.user?.login || req.user?.email || req.user?.phone || '';
-      const token = TokenService.generateToken({
+      const session = this.sessionRepository
+        ? await this.sessionRepository.create({
+            userId: result.user.id,
+            userType: 'patient',
+            deviceMetadata: {
+              platform: platform || 'app',
+              userAgent: req.headers?.['user-agent'] || '',
+              ip: req.ip || '',
+            },
+          })
+        : null;
+      if (req.user?.sessionId && this.sessionRepository) {
+        await this.sessionRepository.revoke(req.user.sessionId, 'PROFILE_COMPLETED');
+      }
+      const token = TokenService.generateAccessToken({
         id: result.user.id,
         login: req.user?.login || req.user?.email || req.user?.phone,
         name: result.user.name,
@@ -54,6 +70,7 @@ export class UserController {
         phone: result.user.phone,
         isRegistered: true,
         role: 'user',
+        sessionId: session?.sessionId,
       });
 
       // Align with documentation: { "status": true, "message": "User registered successfully." }
@@ -63,6 +80,8 @@ export class UserController {
         token,
         is_registered: true,
         is_admin: false,
+        refresh_token: session?.refreshToken,
+        session_id: session?.sessionId,
         has_completed_assessment: false,
         next_step: 'ASSESSMENT',
         data: result.user ? result.user.toPublicProfile() : undefined,
@@ -146,4 +165,3 @@ export class UserController {
     }
   };
 }
-

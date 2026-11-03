@@ -30,12 +30,14 @@ export class AppointmentController {
     patientActivityRepository,
     notificationRepository,
     deviceTokenRepository,
+    auditEventRepository,
   }) {
     this.appointmentRepository = appointmentRepository;
     this.userRepository = userRepository;
     this.patientActivityRepository = patientActivityRepository;
     this.notificationRepository = notificationRepository;
     this.deviceTokenRepository = deviceTokenRepository;
+    this.auditEventRepository = auditEventRepository;
   }
 
   validateSlot = async (startsAt, { patientRequest = false, exceptId = '' } = {}) => {
@@ -237,6 +239,14 @@ export class AppointmentController {
         status_history: [{ action: 'scheduled by clinic', status: 'Confirmed', changed_by: actor, starts_at }],
       });
       await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'appointment', title: 'Clinic appointment scheduled', summary: `${reason} · ${starts_at}`, actor, metadata: { appointment_id: appointment.id } });
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'appointment.created',
+          target: `appointment:${appointment.id}`,
+          metadata: { patient_id: patient.id, starts_at, reason },
+        }).catch(() => null);
+      }
       return sendSuccess(res, { message: 'Clinic appointment scheduled.', data: this.serialize(appointment, patient), statusCode: 201 });
     } catch (error) { next(error); }
   };
@@ -289,6 +299,14 @@ export class AppointmentController {
       }
       const updated = await this.appointmentRepository.update(appointment.id, patch, event);
       await this.patientActivityRepository.record({ userId: appointment.userId, patientCode: appointment.patient_code, type: 'appointment', title: event.action, summary: patch.starts_at || appointment.starts_at, actor, metadata: { appointment_id: appointment.id } });
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: body.action === 'reschedule' ? 'appointment.rescheduled' : 'appointment.updated',
+          target: `appointment:${appointment.id}`,
+          metadata: { status: updated.status, payment_status: updated.payment_status, starts_at: updated.starts_at },
+        }).catch(() => null);
+      }
       const patient = await this.userRepository.findById(appointment.userId);
       return sendSuccess(res, { message: 'Appointment updated.', data: this.serialize(updated, patient) });
     } catch (error) { next(error); }
@@ -311,6 +329,14 @@ export class AppointmentController {
       }
       const actor = String(req.user?.email || req.user?.login || 'Clinic admin');
       const record = await this.appointmentRepository.addClosedDate({ date, reason: String(req.body?.reason || '').trim().slice(0, 200), created_by: actor });
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'clinic_availability.closed',
+          target: `date:${date}`,
+          metadata: { date, reason: req.body?.reason },
+        }).catch(() => null);
+      }
       return sendSuccess(res, { message: 'Clinic date closed for new appointments.', data: record, statusCode: 201 });
     } catch (error) { next(error); }
   };
@@ -320,6 +346,15 @@ export class AppointmentController {
       if (!validateDateKey(req.params.date)) throw new BadRequestError('date must use YYYY-MM-DD format.');
       const removed = await this.appointmentRepository.removeClosedDate(req.params.date);
       if (!removed) throw new NotFoundError('Closed date not found.');
+      const actor = String(req.user?.email || req.user?.login || 'Clinic admin');
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'clinic_availability.reopened',
+          target: `date:${req.params.date}`,
+          metadata: { date: req.params.date },
+        }).catch(() => null);
+      }
       return sendSuccess(res, { message: 'Clinic date reopened for new appointments.' });
     } catch (error) { next(error); }
   };

@@ -75,24 +75,22 @@ export class SessionRepository {
 
   async verifyAndRotate({ sessionId, refreshToken, newExpiresInMs = 30 * 24 * 60 * 60 * 1000 }) {
     if (!sessionId || !refreshToken) return null;
-    const session = await this.findActive(sessionId);
-    if (!session) return null;
-
     const incomingHash = this._hashToken(refreshToken);
-    if (incomingHash !== session.refreshTokenHash) {
-      // Possible token reuse attack - immediately revoke session
-      await this.revoke(sessionId, 'TOKEN_REUSE_DETECTED');
-      return null;
-    }
-
     const newRefreshToken = crypto.randomBytes(32).toString('hex');
     const newHash = this._hashToken(newRefreshToken);
     const newExpiresAt = new Date(Date.now() + newExpiresInMs);
     const now = new Date();
 
     if (isDbConnected()) {
-      await SessionModel.updateOne(
-        { sessionId },
+      // Match the current hash in the update itself so concurrent refresh
+      // requests cannot both rotate the same refresh token.
+      const rotated = await SessionModel.findOneAndUpdate(
+        {
+          sessionId,
+          revokedAt: null,
+          expiresAt: { $gt: now },
+          refreshTokenHash: incomingHash,
+        },
         {
           $set: {
             refreshTokenHash: newHash,
@@ -101,24 +99,46 @@ export class SessionRepository {
             updated_at: now,
           },
         },
+        { new: true },
       );
+      if (!rotated) {
+        const active = await this.findActive(sessionId);
+        if (active && active.refreshTokenHash !== incomingHash) {
+          await this.revoke(sessionId, 'TOKEN_REUSE_DETECTED');
+        }
+        return null;
+      }
+
+      return {
+        sessionId,
+        refreshToken: newRefreshToken,
+        expiresAt: newExpiresAt,
+        userId: String(rotated.userId),
+        userType: rotated.userType,
+      };
     } else {
       const idx = store.sessions.findIndex((s) => s.sessionId === sessionId);
-      if (idx !== -1) {
-        store.sessions[idx].refreshTokenHash = newHash;
-        store.sessions[idx].rotatedAt = now;
-        store.sessions[idx].expiresAt = newExpiresAt;
-        store.sessions[idx].updated_at = now;
+      const session = idx === -1 ? null : store.sessions[idx];
+      if (!session || session.revokedAt || new Date(session.expiresAt) <= now) return null;
+      if (session.refreshTokenHash !== incomingHash) {
+        session.revokedAt = now;
+        session.revokedReason = 'TOKEN_REUSE_DETECTED';
+        session.updated_at = now;
+        return null;
       }
-    }
+      session.refreshTokenHash = newHash;
+      session.rotatedAt = now;
+      session.expiresAt = newExpiresAt;
+      session.updated_at = now;
 
-    return {
-      sessionId,
-      refreshToken: newRefreshToken,
-      expiresAt: newExpiresAt,
-      userId: session.userId,
-      userType: session.userType,
-    };
+      return {
+        sessionId,
+        refreshToken: newRefreshToken,
+        expiresAt: newExpiresAt,
+        userId: String(session.userId),
+        userType: session.userType,
+      };
+    }
   }
 
   async revoke(sessionId, reason = 'LOGOUT') {

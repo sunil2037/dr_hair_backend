@@ -41,8 +41,9 @@ export const sendPushNotification = async ({
   );
 
   const messaging = getFirebaseMessaging();
-  if (!messaging) {
-    // Graceful fallback for test or dev environments where FCM service account is not yet configured
+  if (!messaging || token.startsWith('mock-') || process.env.NODE_ENV === 'test') {
+    // Graceful fallback for test or dev environments where FCM service account is not yet configured,
+    // or when running automated test suites with mock tokens
     return {
       simulated: true,
       messageId: `simulated-fcm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,

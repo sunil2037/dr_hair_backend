@@ -34,7 +34,7 @@ export class AppointmentRepository {
         throw error;
       }
     }
-    if (record.slot_key && store.appointments.some((item) => item.slot_key === record.slot_key)) {
+    if (record.slot_key && store.appointments.some((item) => item.slot_key === record.slot_key && item.status !== 'Cancelled')) {
       throw new ConflictError('This clinic slot is already booked. Choose another time.');
     }
     store.appointments.unshift(record);
@@ -105,7 +105,11 @@ export class AppointmentRepository {
       throw new ConflictError('This clinic slot is already booked. Choose another time.');
     }
     Object.assign(record, patch, { updated_at: now.toISOString() });
-    record.slot_key = patch.status === 'Cancelled' ? undefined : (patch.starts_at || record.starts_at);
+    if (patch.status === 'Cancelled') {
+      delete record.slot_key;
+    } else if (patch.starts_at) {
+      record.slot_key = patch.starts_at;
+    }
     record.status_history = [...(record.status_history || []), { ...event, changed_at: now.toISOString() }];
     return record;
   }

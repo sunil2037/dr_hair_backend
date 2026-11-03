@@ -3,9 +3,18 @@ import { sendSuccess } from '../../../shared/utils/response.js';
 import { sendPushNotification } from '../infrastructure/FirebaseAdminMessaging.js';
 
 export class NotificationController {
-  constructor({ deviceTokenRepository, notificationRepository }) {
+  constructor({
+    deviceTokenRepository,
+    notificationRepository,
+    campaignRepository = null,
+    campaignSchedulerService = null,
+    auditEventRepository = null,
+  }) {
     this.deviceTokenRepository = deviceTokenRepository;
     this.notificationRepository = notificationRepository;
+    this.campaignRepository = campaignRepository;
+    this.campaignSchedulerService = campaignSchedulerService;
+    this.auditEventRepository = auditEventRepository;
   }
 
   registerDeviceToken = async (req, res, next) => {
@@ -175,6 +184,16 @@ export class NotificationController {
     }
   };
 
+  previewAudience = async (req, res, next) => {
+    try {
+      const { audience = 'All app users' } = req.query || {};
+      const count = await this.deviceTokenRepository.countByAudience(audience);
+      return sendSuccess(res, { data: count });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   broadcast = async (req, res, next) => {
     try {
       const {
@@ -184,6 +203,8 @@ export class NotificationController {
         type = 'announcement',
         destination = {},
         data = {},
+        scheduled_at = null,
+        scheduledAt = null,
       } = req.body || {};
 
       if (typeof title !== 'string' || !title.trim() || title.length > 120) {
@@ -199,7 +220,52 @@ export class NotificationController {
         entityId: destination.entityId || data.entity_id || null,
       };
 
-      // Save global notification record in inbox (userId: null)
+      const actor = String(req.user?.email || req.user?.login || 'Super Admin');
+      const targetDate = scheduled_at || scheduledAt ? new Date(scheduled_at || scheduledAt) : null;
+      const isFutureSchedule = targetDate && targetDate.getTime() > Date.now() + 60000;
+
+      // Calculate audience recipients server-side
+      const targetTokens = await this.deviceTokenRepository.listByAudience(audience);
+      const targetCount = targetTokens.length;
+
+      let campaign = null;
+      if (this.campaignRepository) {
+        campaign = await this.campaignRepository.create({
+          title: title.trim(),
+          body: body.trim(),
+          audience,
+          destination: dest,
+          scheduledAt: isFutureSchedule ? targetDate : null,
+          createdBy: actor,
+          targetCount,
+          status: isFutureSchedule ? 'scheduled' : 'draft',
+        });
+      }
+
+      if (isFutureSchedule) {
+        if (this.auditEventRepository?.record) {
+          await this.auditEventRepository.record({
+            actor,
+            action: 'notification_campaign.scheduled',
+            target: `campaign:${campaign?.id || 'scheduled'}`,
+            metadata: { title: title.trim(), audience, scheduledAt: targetDate.toISOString(), targetCount },
+          }).catch(() => null);
+        }
+
+        return sendSuccess(res, {
+          message: 'Notification campaign scheduled.',
+          data: {
+            campaign,
+            is_scheduled: true,
+            status: 'Scheduled',
+            scheduled_at: targetDate.toISOString(),
+            audience,
+            target_count: targetCount,
+          },
+        });
+      }
+
+      // Immediate dispatch
       let saved = null;
       if (this.notificationRepository) {
         saved = await this.notificationRepository.create({
@@ -212,9 +278,9 @@ export class NotificationController {
         });
       }
 
-      const allTokens = await this.deviceTokenRepository.listAll();
       const pushData = {
         ...data,
+        campaign_id: campaign?.id || '',
         notification_id: saved?.id || '',
         destination_type: dest.type,
         ...(dest.screen ? { screen: dest.screen } : {}),
@@ -223,30 +289,66 @@ export class NotificationController {
 
       let sent = 0;
       let failed = 0;
+      const invalidTokens = [];
 
-      if (allTokens.length > 0) {
+      if (targetTokens.length > 0) {
         const results = await Promise.all(
-          allTokens.map(async ({ token }) => {
+          targetTokens.map(async ({ token }) => {
             try {
               await sendPushNotification({ token, title: title.trim(), body: body.trim(), data: pushData });
               return { token, ok: true };
             } catch (error) {
-              return { token, ok: false, code: error.code };
+              const invalidCodes = new Set([
+                'messaging/registration-token-not-registered',
+                'messaging/invalid-registration-token',
+              ]);
+              return { token, ok: false, code: error.code, invalid: invalidCodes.has(error.code) };
             }
           }),
         );
         sent = results.filter((r) => r.ok).length;
-        failed = allTokens.length - sent;
+        failed = targetTokens.length - sent;
+        for (const res of results) {
+          if (res.invalid) invalidTokens.push(res.token);
+        }
+        if (invalidTokens.length > 0) {
+          await this.deviceTokenRepository.removeInvalidTokens(invalidTokens).catch(() => {});
+        }
+      }
+
+      const finalStatus = targetTokens.length === 0
+        ? 'sent'
+        : sent > 0
+          ? (failed === 0 ? 'sent' : 'partial')
+          : 'failed';
+
+      if (campaign && this.campaignRepository) {
+        campaign = await this.campaignRepository.markCompleted(campaign.id, {
+          sentCount: sent,
+          failedCount: failed,
+          status: finalStatus,
+        });
+      }
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'notification_campaign.broadcast',
+          target: `campaign:${campaign?.id || 'broadcast'}`,
+          metadata: { title: title.trim(), audience, targetCount, sent, failed, status: finalStatus },
+        }).catch(() => null);
       }
 
       return sendSuccess(res, {
         message: 'Broadcast push notification sent.',
         data: {
+          campaign,
           notification: saved,
           audience,
-          total_targets: allTokens.length,
+          total_targets: targetTokens.length,
           sent,
           failed,
+          status: finalStatus === 'sent' ? 'Sent' : finalStatus === 'partial' ? 'Partial' : 'Failed',
         },
       });
     } catch (error) {
@@ -254,11 +356,41 @@ export class NotificationController {
     }
   };
 
+  cancelCampaign = async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const actor = String(req.user?.email || req.user?.login || 'Super Admin');
+      if (!this.campaignRepository) throw new NotFoundError('Campaign management is not configured.');
+      const updated = await this.campaignRepository.cancel(id, actor);
+      if (!updated) throw new NotFoundError('Campaign not found.');
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'notification_campaign.cancelled',
+          target: `campaign:${id}`,
+          metadata: { id },
+        }).catch(() => null);
+      }
+      return sendSuccess(res, { message: 'Campaign cancelled.', data: updated });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listCampaigns = async (req, res, next) => {
     try {
-      const { page, limit } = req.query || {};
-      const result = await this.notificationRepository.listCampaigns({ page, limit });
-      return sendSuccess(res, { data: result });
+      const { page, limit, status, audience } = req.query || {};
+      if (this.notificationRepository?.listCampaigns) {
+        const legacyResult = await this.notificationRepository.listCampaigns({ page, limit });
+        if (legacyResult && legacyResult.total > 0) {
+          return sendSuccess(res, { data: legacyResult });
+        }
+      }
+      if (this.campaignRepository) {
+        const result = await this.campaignRepository.list({ page, limit, status, audience });
+        return sendSuccess(res, { data: result });
+      }
+      return sendSuccess(res, { data: { items: [], total: 0, page: 1, limit: 50, hasMore: false } });
     } catch (error) {
       next(error);
     }

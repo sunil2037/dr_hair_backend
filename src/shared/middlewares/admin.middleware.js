@@ -33,3 +33,24 @@ export const requirePermission = (permissionId) => (req, res, next) => {
   }
   next();
 };
+
+export const requireAnyPermission = (...permissionIds) => (req, res, next) => {
+  if (!['admin', 'super_admin'].includes(req.user?.role)) {
+    return next(new ForbiddenError('Administrator access is required.'));
+  }
+  if (req.user?.role === 'super_admin') {
+    return next();
+  }
+  const permissions = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+  const hasAny = permissionIds.some((permissionId) => permissions.includes(permissionId));
+  if (!hasAny) {
+    return next(
+      new ForbiddenError(
+        `One of permissions [${permissionIds.join(', ')}] is required for this operation.`,
+        null,
+        'FORBIDDEN',
+      ),
+    );
+  }
+  next();
+};

@@ -35,6 +35,29 @@ export class ProgressCheckInRepository {
       .sort((left, right) => new Date(right.date) - new Date(left.date) || new Date(right.created_at) - new Date(left.created_at));
   }
 
+  async findById(userId, checkInId) {
+    const numericId = Number(userId);
+    if (!Number.isSafeInteger(numericId)) return null;
+    if (isMongoConnected()) {
+      return ProgressCheckInModel.findOne({ userId: numericId, id: String(checkInId) }).lean();
+    }
+    return store.progressCheckIns.find((item) => item.id === String(checkInId) && Number(item.userId) === numericId) || null;
+  }
+
+  async removeCheckIn(userId, checkInId) {
+    const numericId = Number(userId);
+    if (!Number.isSafeInteger(numericId)) return null;
+    if (isMongoConnected()) {
+      const record = await ProgressCheckInModel.findOne({ userId: numericId, id: String(checkInId) }).lean();
+      if (!record) return null;
+      await ProgressCheckInModel.deleteOne({ userId: numericId, id: String(checkInId) });
+      return record;
+    }
+    const index = store.progressCheckIns.findIndex((item) => item.id === String(checkInId) && Number(item.userId) === numericId);
+    if (index < 0) return null;
+    return store.progressCheckIns.splice(index, 1)[0];
+  }
+
   async removePhoto(userId, checkInId, angle) {
     const numericId = Number(userId);
     if (isMongoConnected()) {
@@ -63,5 +86,28 @@ export class ProgressCheckInRepository {
     }
     const record = store.progressCheckIns.find((item) => item.id === String(checkInId) && Number(item.userId) === numericId);
     if (record && !record.photos.some((item) => item.angle === photo.angle)) record.photos.push(photo);
+  }
+
+  async updateReview(userId, checkInId, { doctor_note, is_doctor_reviewed = true } = {}) {
+    const numericId = Number(userId);
+    if (!Number.isSafeInteger(numericId)) return null;
+    if (isMongoConnected()) {
+      const updated = await ProgressCheckInModel.findOneAndUpdate(
+        { userId: numericId, id: String(checkInId) },
+        {
+          $set: {
+            doctor_note: typeof doctor_note === 'string' ? doctor_note.trim() : '',
+            is_doctor_reviewed: Boolean(is_doctor_reviewed),
+          },
+        },
+        { new: true },
+      ).lean();
+      return updated;
+    }
+    const record = store.progressCheckIns.find((item) => item.id === String(checkInId) && Number(item.userId) === numericId);
+    if (!record) return null;
+    record.doctor_note = typeof doctor_note === 'string' ? doctor_note.trim() : '';
+    record.is_doctor_reviewed = Boolean(is_doctor_reviewed);
+    return record;
   }
 }

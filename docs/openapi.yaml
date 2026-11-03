@@ -72,7 +72,7 @@ paths:
     post:
       tags: [Authentication]
       summary: Request a sign-in or registration OTP
-      description: Returns a generic response without revealing whether the identity belongs to an account. Local development may include test_otp only when EXPOSE_TEST_OTP=true; this is disabled on every Vercel deployment. OTPs expire after the configured period, allow up to five wrong guesses, and production request limits are shared through MongoDB. A delivery provider must be configured before OTP requests can succeed outside development.
+      description: Returns a generic response without revealing whether the identity belongs to an account. Local development may include test_otp only when EXPOSE_TEST_OTP=true; this is disabled on every Vercel deployment. OTPs expire after the configured period, allow up to five wrong guesses, and production request limits are shared through MongoDB. A delivery provider must be configured before OTP requests can succeed outside development; provider portal verification failures are treated as delivery failures.
       x-legacy-path: /auth/send_login_otp
       requestBody:
         required: true
@@ -123,6 +123,8 @@ paths:
                   - type: object
                     properties:
                       token: { type: string }
+                      refresh_token: { type: string }
+                      session_id: { type: string }
                       is_registered: { type: boolean }
                       is_admin: { type: boolean }
                       data: { $ref: '#/components/schemas/UserProfile' }
@@ -154,6 +156,91 @@ paths:
                           is_registered: { type: boolean }
                           is_admin: { type: boolean }
                           user: { $ref: '#/components/schemas/UserProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Rotate an active refresh token and issue a fresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+                session_id: { type: string }
+              required: [refresh_token, session_id]
+      responses:
+        '200':
+          description: Token rotated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      token: { type: string }
+                      refresh_token: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Revoke the active session, clear FCM token, and invalidate refresh token
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fcm_token: { type: string }
+      responses:
+        '200':
+          description: Signed out and session revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Retrieve authenticated patient profile and session info
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/UserProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/me:
+    get:
+      tags: [Authentication]
+      summary: Alias for /api/v1/auth/me
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/UserProfile' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /api/v1/admin-auth/login:
@@ -1114,6 +1201,158 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/v1/admin/users/{userId}/progress-checkins/{checkInId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, description: Numeric database ID or patient code such as DHP0001 }
+      - name: checkInId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Admin]
+      summary: Review a patient progress check-in and add clinician note
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                doctor_note:
+                  type: string
+                  maxLength: 2000
+                is_doctor_reviewed:
+                  type: boolean
+                  default: true
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/appointments:
+    get:
+      tags: [Admin]
+      summary: List clinic appointments with optional date filters
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: status
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Schedule a new clinic appointment for a patient
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id, starts_at]
+              properties:
+                patient_id: { type: string }
+                starts_at: { type: string, format: date-time }
+                reason: { type: string }
+                source: { type: string, enum: [App, Phone, WhatsApp, Reception] }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/v1/admin/appointments/{appointmentId}:
+    parameters:
+      - name: appointmentId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Admin]
+      summary: Update appointment status, reschedule slot, or record payment
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action: { type: string, enum: [reschedule] }
+                starts_at: { type: string, format: date-time }
+                status: { type: string, enum: [Requested, Confirmed, Arrived, In Consultation, Completed, Cancelled, No show] }
+                payment_status: { type: string, enum: [Pending, Paid, Refunded, Waived] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/v1/admin/appointments/closed-dates:
+    get:
+      tags: [Admin]
+      summary: List all closed clinic dates / holidays
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Close a clinic date to block new appointments
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date]
+              properties:
+                date: { type: string, example: '2026-12-25' }
+                reason: { type: string }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/v1/admin/appointments/closed-dates/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema: { type: string, example: '2026-12-25' }
+    delete:
+      tags: [Admin]
+      summary: Reopen a closed clinic date for appointments
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/v1/admin/accounts:
     get:
       tags: [Admin]
@@ -1176,6 +1415,52 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/hair-tests/{referenceNo}/status:
+    patch:
+      tags: [Admin]
+      summary: Update hair assessment review status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: referenceNo
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [submitted, reviewing, reviewed, rejected] }
+                note: { type: string }
+              required: [status]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/audit:
+    get:
+      tags: [Admin]
+      summary: List administrative mutation audit events
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: action
+          in: query
+          schema: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -1253,6 +1538,215 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/AdminPushRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/notifications/broadcast:
+    post:
+      tags: [Admin, Notifications]
+      summary: Send or schedule a broadcast notification campaign
+      description: Dispatches push notifications to targeted audience ('All app users', 'Active patients', 'Patients with a shared report') or schedules for future dispatch.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, body]
+              properties:
+                title: { type: string, maxLength: 120 }
+                body: { type: string, maxLength: 1000 }
+                audience: { type: string, enum: ['All app users', 'Active patients', 'Patients with a shared report'], default: 'All app users' }
+                scheduled_at: { type: string, format: date-time, nullable: true }
+                destination:
+                  type: object
+                  properties:
+                    type: { type: string, default: 'screen' }
+                    screen: { type: string, default: 'home' }
+                    entityId: { type: string, nullable: true }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/notifications/audience-count:
+    get:
+      tags: [Admin, Notifications]
+      summary: Preview targeted recipient count for an audience segment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: audience
+          in: query
+          schema: { type: string, default: 'All app users' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/notifications/campaigns:
+    get:
+      tags: [Admin, Notifications]
+      summary: List notification campaigns
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [draft, scheduled, processing, sent, partial, failed, cancelled] }
+        - name: audience
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/notifications/campaigns/{id}/cancel:
+    post:
+      tags: [Admin, Notifications]
+      summary: Cancel a scheduled or draft notification campaign
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/content:
+    get:
+      tags: [Patient app]
+      summary: List published managed content items
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [banner, faq, tip, story, home_placement] }
+        - name: placement
+          in: query
+          schema: { type: string, enum: [home, reels, care, explore, all] }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/content/faqs:
+    get:
+      tags: [Patient app]
+      summary: List published frequently asked questions
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/content/stories:
+    get:
+      tags: [Patient app]
+      summary: List published patient stories with verified consent
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/content/tips:
+    get:
+      tags: [Patient app]
+      summary: List published clinical tips
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/admin/content:
+    get:
+      tags: [Admin]
+      summary: List content items with admin metadata
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [draft, review, published, hidden, archived] }
+        - name: placement
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Create a managed content item
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, title]
+              properties:
+                type: { type: string, enum: [banner, faq, tip, story, home_placement] }
+                title: { type: string }
+                subtitle: { type: string }
+                content: { type: string }
+                imageUrl: { type: string }
+                actionUrl: { type: string }
+                placement: { type: string, enum: [home, reels, care, explore, all], default: 'home' }
+                status: { type: string, enum: [draft, review, published, hidden, archived], default: 'draft' }
+                sortOrder: { type: integer, default: 0 }
+                provenance:
+                  type: object
+                  properties:
+                    consent_verified: { type: boolean }
+                    consent_reference: { type: string }
+                    source: { type: string }
+                    approved_by: { type: string }
+                    evidence_note: { type: string }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/content/{id}/status:
+    patch:
+      tags: [Admin]
+      summary: Transition content item lifecycle state with approval provenance
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [draft, review, published, hidden, archived] }
+                note: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -1345,6 +1839,8 @@ components:
         status: { type: string, const: success }
         message: { type: string }
         data: {}
+        meta: { type: object, nullable: true }
+        error: { type: 'null', default: null }
         token: { type: string }
         type: { type: string }
         is_registered: { type: boolean }
@@ -1356,6 +1852,15 @@ components:
       properties:
         status: { type: string, const: error }
         message: { type: string }
+        data: { type: 'null', default: null }
+        meta: { type: object, nullable: true }
+        error:
+          type: object
+          properties:
+            code: { type: string, enum: [AUTH_REQUIRED, FORBIDDEN, VALIDATION_ERROR, NOT_FOUND, CONFLICT, PROVIDER_UNAVAILABLE, PAYLOAD_TOO_LARGE, BAD_GATEWAY, INTERNAL_SERVER_ERROR] }
+            message: { type: string }
+            details: {}
+          required: [code, message]
         details: {}
       required: [status, message]
     LoginRequest:

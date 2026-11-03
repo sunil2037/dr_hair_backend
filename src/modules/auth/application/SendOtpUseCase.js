@@ -54,14 +54,10 @@ export class SendOtpUseCase {
       throw error;
     }
 
-    const showTestOtp =
-      (this.exposeTestOtp && this.defaultOtp) ||
-      Boolean(this.smsService?.pendingVerification);
+    const showTestOtp = this.exposeTestOtp && this.defaultOtp;
 
     return {
-      message: this.smsService?.pendingVerification
-        ? `Verification code: ${otpCode} (SMS gateway website verification pending on Fast2SMS).`
-        : 'If this destination can receive a code, a verification code has been sent.',
+      message: 'If this destination can receive a code, a verification code has been sent.',
       ...(showTestOtp ? { testOtp: otpCode } : {}),
     };
   }
@@ -72,4 +68,3 @@ export class SendOtpUseCase {
       .digest('hex');
   }
 }
-

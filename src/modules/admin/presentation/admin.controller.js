@@ -246,6 +246,14 @@ export class AdminController {
         visibility_history: [{ action: 'uploaded', visibility: 'Private', changed_by: uploadedBy, changed_at: new Date() }],
       });
       await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'report', title: 'Report uploaded', summary: title, actor: uploadedBy, metadata: { report_id: report.id } });
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor: uploadedBy,
+          action: 'report.uploaded',
+          target: `patient:${patient.id}`,
+          metadata: { report_id: report.id, title },
+        }).catch(() => null);
+      }
       return sendSuccess(res, { message: 'Private patient report uploaded.', data: reportResponse(report), statusCode: 201 });
     } catch (error) {
       if (uploadedAsset?.public_id) {
@@ -266,6 +274,14 @@ export class AdminController {
       const report = await this.clinicalReportRepository.updateVisibility(patient.id, req.params.reportId, visibility, changedBy, visibility === 'Shared');
       if (!report) throw new NotFoundError('Patient report not found.');
       await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'report', title: visibility === 'Shared' ? 'Report shared with patient' : 'Report hidden from patient', summary: report.title, actor: changedBy, metadata: { report_id: report.id, patient_consent_confirmed: visibility === 'Shared' } });
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor: changedBy,
+          action: visibility === 'Shared' ? 'report.shared' : 'report.hidden',
+          target: `patient:${patient.id}`,
+          metadata: { report_id: report.id, visibility, patient_consent_confirmed: visibility === 'Shared' },
+        }).catch(() => null);
+      }
       return sendSuccess(res, {
         message: visibility === 'Shared' ? 'Report is now visible to the patient.' : 'Report is now hidden from the patient.',
         data: reportResponse(report),
@@ -286,6 +302,14 @@ export class AdminController {
       const archived = await this.clinicalReportRepository.archiveByUserIdAndId(patient.id, report.id, actor);
       if (!archived) throw new NotFoundError('Patient report was already archived. Refresh the patient record.');
       await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'report', title: 'Report archived for 30 days', summary: report.title, actor, metadata: { report_id: report.id, purge_after: archived.purge_after } });
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'report.archived',
+          target: `patient:${patient.id}`,
+          metadata: { report_id: report.id, title: report.title, purge_after: archived.purge_after },
+        }).catch(() => null);
+      }
 
       return sendSuccess(res, {
         message: 'Report moved to the recovery archive for 30 days.',
@@ -344,6 +368,14 @@ export class AdminController {
       if (!report) throw new NotFoundError('Archived report was not found or its 30-day recovery window has ended.');
       const actor = String(req.user?.email || req.user?.login || 'Super Admin');
       await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'report', title: 'Archived report restored', summary: report.title, actor, metadata: { report_id: report.id } });
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'report.restored',
+          target: `patient:${patient.id}`,
+          metadata: { report_id: report.id, title: report.title },
+        }).catch(() => null);
+      }
       return sendSuccess(res, { message: 'Report restored to the patient record as private.', data: reportResponse(report) });
     } catch (error) { next(error); }
   };
@@ -360,6 +392,49 @@ export class AdminController {
           url: createClinicalReportDownloadUrl(report.public_id, report.format, { attachment: !inline }),
           expires_in_seconds: 60,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  reviewProgressCheckIn = async (req, res, next) => {
+    try {
+      const patient = await this.userRepository.findById(req.params.userId);
+      if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
+      const checkInId = req.params.checkInId;
+      const { doctor_note, is_doctor_reviewed = true } = req.body || {};
+      if (doctor_note !== undefined && (typeof doctor_note !== 'string' || doctor_note.length > 2000)) {
+        throw new BadRequestError('doctor_note must be text with at most 2000 characters.');
+      }
+      const existing = await this.progressCheckInRepository.findById(patient.id, checkInId);
+      if (!existing) throw new NotFoundError('Progress check-in not found.');
+      const updated = await this.progressCheckInRepository.updateReview(patient.id, checkInId, {
+        doctor_note,
+        is_doctor_reviewed,
+      });
+      const actor = String(req.user?.email || req.user?.login || 'Clinician');
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'progress_checkin.reviewed',
+          target: `patient:${patient.id}`,
+          metadata: { checkin_id: checkInId, is_doctor_reviewed: Boolean(is_doctor_reviewed), doctor_note: (doctor_note || '').slice(0, 100) },
+        }).catch(() => null);
+      }
+      await this.patientActivityRepository?.record({
+        userId: patient.id,
+        patientCode: patient.patient_code,
+        type: 'care_plan',
+        title: 'Daily progress reviewed',
+        summary: doctor_note ? doctor_note.slice(0, 120) : 'Progress check-in reviewed by clinician',
+        actor,
+        metadata: { checkin_id: checkInId },
+      }).catch(() => null);
+
+      return sendSuccess(res, {
+        message: 'Progress check-in reviewed.',
+        data: { item: await progressCheckInResponse(updated, this.imageStorage) },
       });
     } catch (error) {
       next(error);
@@ -487,12 +562,50 @@ export class AdminController {
         diet_meals: normalizedDietMeals,
         ...(date ? { date } : {}),
       });
+      if (this.hairTestRepository?.updateStatus) {
+        await this.hairTestRepository.updateStatus(hairTest.reference_no, 'reviewed', {
+          changed_by: String(req.user?.email || req.user?.login || 'Super Admin'),
+          note: `Care plan assigned: ${treatment_name.trim()}`,
+        }).catch(() => null);
+      }
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor: String(req.user?.email || req.user?.login || 'Super Admin'),
+          action: 'care_plan.created',
+          target: `patient:${hairTest.userId}`,
+          metadata: { reference_no: hairTest.reference_no, treatment_name: treatment_name.trim() },
+        }).catch(() => null);
+      }
       await this.patientActivityRepository?.record({ userId: hairTest.userId, type: 'care_plan', title: 'Care plan added', summary: treatment_name.trim(), actor: String(req.user?.email || req.user?.login || 'Super Admin'), metadata: { reference_no: hairTest.reference_no } });
       return sendSuccess(res, {
         message: 'Treatment plan created.',
         data: { ...treatment.toResponse(), reference_no: treatment.reference_no },
         statusCode: 201,
       });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateHairTestStatus = async (req, res, next) => {
+    try {
+      const { referenceNo } = req.params;
+      const { status, note } = req.body || {};
+      if (!status || typeof status !== 'string') throw new BadRequestError('status is required.');
+      const actor = String(req.user?.email || req.user?.login || 'Admin');
+      const updated = await this.hairTestRepository.updateStatus(referenceNo, status.trim(), {
+        changed_by: actor,
+        note: typeof note === 'string' ? note.trim() : '',
+      });
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'assessment.status_updated',
+          target: `assessment:${referenceNo}`,
+          metadata: { status: updated.status, reference_no: referenceNo },
+        }).catch(() => null);
+      }
+      return sendSuccess(res, { message: 'Assessment status updated.', data: updated });
     } catch (error) {
       next(error);
     }

@@ -465,6 +465,85 @@ const auditEventSchema = new Schema(
 );
 auditEventSchema.index({ created_at: -1, action: 1 });
 
+const notificationCampaignSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    title: { type: String, required: true, trim: true },
+    body: { type: String, required: true, trim: true },
+    audience: {
+      type: String,
+      enum: ['All app users', 'Active patients', 'Patients with a shared report', 'Custom'],
+      default: 'All app users',
+      index: true,
+    },
+    destination: {
+      type: { type: String, default: 'screen' },
+      screen: { type: String, default: 'home' },
+      entityId: { type: String, default: null },
+    },
+    status: {
+      type: String,
+      enum: ['draft', 'scheduled', 'processing', 'sent', 'partial', 'failed', 'cancelled'],
+      default: 'draft',
+      index: true,
+    },
+    scheduledAt: { type: Date, default: null, index: true },
+    sentAt: { type: Date, default: null },
+    targetCount: { type: Number, default: 0 },
+    sentCount: { type: Number, default: 0 },
+    failedCount: { type: Number, default: 0 },
+    createdBy: { type: String, default: 'Super Admin' },
+    errorMessage: { type: String, default: null },
+    created_at: { type: Date, default: Date.now, index: true },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'notification_campaigns', versionKey: false },
+);
+notificationCampaignSchema.index({ status: 1, scheduledAt: 1 });
+
+const contentItemSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    type: {
+      type: String,
+      enum: ['banner', 'faq', 'tip', 'story', 'home_placement'],
+      required: true,
+      index: true,
+    },
+    title: { type: String, required: true, trim: true },
+    subtitle: { type: String, default: '' },
+    content: { type: String, default: '' },
+    imageUrl: { type: String, default: '' },
+    actionUrl: { type: String, default: '' },
+    placement: {
+      type: String,
+      enum: ['home', 'reels', 'care', 'explore', 'all'],
+      default: 'home',
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ['draft', 'review', 'published', 'hidden', 'archived'],
+      default: 'draft',
+      index: true,
+    },
+    provenance: {
+      consent_verified: { type: Boolean, default: false },
+      consent_reference: { type: String, default: '' },
+      source: { type: String, default: '' },
+      approved_by: { type: String, default: '' },
+      evidence_note: { type: String, default: '' },
+      approved_at: { type: Date, default: null },
+    },
+    sortOrder: { type: Number, default: 0, index: true },
+    metadata: { type: Schema.Types.Mixed, default: {} },
+    created_at: { type: Date, default: Date.now, index: true },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'content_items', versionKey: false },
+);
+contentItemSchema.index({ type: 1, placement: 1, status: 1, sortOrder: 1 });
+
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);
 export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.model('DrHairAdminAccount', adminAccountSchema);
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
@@ -479,6 +558,8 @@ export const ProgressCheckInModel = mongoose.models.DrHairProgressCheckIn || mon
 export const ReviewModel = mongoose.models.DrHairReview || mongoose.model('DrHairReview', reviewSchema);
 export const DeviceTokenModel = mongoose.models.DrHairDeviceToken || mongoose.model('DrHairDeviceToken', deviceTokenSchema);
 export const NotificationModel = mongoose.models.DrHairNotification || mongoose.model('DrHairNotification', notificationSchema);
+export const NotificationCampaignModel = mongoose.models.DrHairNotificationCampaign || mongoose.model('DrHairNotificationCampaign', notificationCampaignSchema);
+export const ContentItemModel = mongoose.models.DrHairContentItem || mongoose.model('DrHairContentItem', contentItemSchema);
 export const VideoModel = mongoose.models.DrHairVideo || mongoose.model('DrHairVideo', videoSchema);
 export const ProductModel = mongoose.models.DrHairProduct || mongoose.model('DrHairProduct', productSchema);
 export const CartModel = mongoose.models.DrHairCart || mongoose.model('DrHairCart', cartSchema);

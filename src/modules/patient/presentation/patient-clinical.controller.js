@@ -15,7 +15,7 @@ const publicReport = (report) => ({
 });
 
 export class PatientClinicalController {
-  constructor({ hairTestRepository, treatmentRepository, clinicalReportRepository, appointmentRepository, progressCheckInRepository, patientActivityRepository, imageStorage }) {
+  constructor({ hairTestRepository, treatmentRepository, clinicalReportRepository, appointmentRepository, progressCheckInRepository, patientActivityRepository, imageStorage, submitHairTestUseCase }) {
     this.hairTestRepository = hairTestRepository;
     this.treatmentRepository = treatmentRepository;
     this.clinicalReportRepository = clinicalReportRepository;
@@ -23,6 +23,7 @@ export class PatientClinicalController {
     this.progressCheckInRepository = progressCheckInRepository;
     this.patientActivityRepository = patientActivityRepository;
     this.imageStorage = imageStorage;
+    this.submitHairTestUseCase = submitHairTestUseCase;
   }
 
   getClinicalRecord = async (req, res, next) => {
@@ -40,19 +41,96 @@ export class PatientClinicalController {
       ]);
       return sendSuccess(res, {
         data: {
-          assessments: await Promise.all(assessments.map(async (assessment) => ({
-            ...assessment,
-            scalp_photos: await Promise.all((assessment.scalp_photos || []).filter((photo) => !photo.deleted_at).map(async (photo) => ({
-              ...photo,
-              url: photo.delivery_type === 'authenticated'
-                ? this.imageStorage.createPrivateDownloadUrl(photo.file_name, photo.format)
-                : photo.url,
-              url_expires_in_seconds: photo.delivery_type === 'authenticated' ? 300 : null,
-            }))),
-          }))),
+          assessments: await Promise.all(
+            assessments
+              .filter((assessment) => assessment.status !== 'draft')
+              .map(async (assessment) => ({
+                ...assessment,
+                status: assessment.status || 'submitted',
+                status_history: assessment.status_history || [],
+                scalp_photos: await Promise.all((assessment.scalp_photos || []).filter((photo) => !photo.deleted_at).map(async (photo) => ({
+                  ...photo,
+                  url: photo.delivery_type === 'authenticated'
+                    ? this.imageStorage.createPrivateDownloadUrl(photo.file_name, photo.format)
+                    : photo.url,
+                  url_expires_in_seconds: photo.delivery_type === 'authenticated' ? 300 : null,
+                }))),
+              }))
+          ),
           care_plans: carePlans.map((plan) => ({ ...plan.toResponse(), reference_no: plan.reference_no })),
           reports: reports.map(publicReport),
           appointments,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getAssessmentDraft = async (req, res, next) => {
+    try {
+      const draft = await this.hairTestRepository.getDraft(req.user.id);
+      return sendSuccess(res, { data: { draft } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  saveAssessmentDraft = async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const formData = body.formData || body;
+      const step = typeof body.step === 'number' ? body.step : 0;
+      const draft = await this.hairTestRepository.saveDraft(req.user.id, formData, step);
+      return sendSuccess(res, { message: 'Assessment draft saved.', data: { draft } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteAssessmentDraft = async (req, res, next) => {
+    try {
+      await this.hairTestRepository.deleteDraft(req.user.id);
+      return sendSuccess(res, { message: 'Assessment draft deleted.' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  submitAssessment = async (req, res, next) => {
+    try {
+      const userId = req.user.id;
+      let formData = req.body || {};
+      if ((!formData || Object.keys(formData).length === 0 || formData.use_draft) && this.hairTestRepository?.getDraft) {
+        const draft = await this.hairTestRepository.getDraft(userId);
+        if (draft?.formData) {
+          formData = { ...draft.formData, ...formData };
+        }
+      }
+      if (!this.submitHairTestUseCase) {
+        throw new AppError('Assessment submission is currently unavailable.', 503);
+      }
+      const result = await this.submitHairTestUseCase.execute({
+        userId,
+        formData,
+        files: req.files || {},
+      });
+      if (this.patientActivityRepository?.record) {
+        await this.patientActivityRepository.record({
+          userId,
+          type: 'assessment',
+          title: 'Hair assessment submitted',
+          summary: result.reference_no,
+          actor: 'Patient app',
+          metadata: { reference_no: result.reference_no },
+        }).catch(() => null);
+      }
+      return sendSuccess(res, {
+        message: result.message,
+        statusCode: 201,
+        data: {
+          reference_no: result.reference_no,
+          test: result.test,
         },
       });
     } catch (error) {
@@ -150,6 +228,37 @@ export class PatientClinicalController {
         throw new AppError('The photo could not be deleted from storage. The clinical record was restored; retry later.', 503);
       }
       return sendSuccess(res, { message: 'Progress photo deleted from storage and the clinical record.' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteProgressCheckIn = async (req, res, next) => {
+    try {
+      const userId = Number(req.user.id);
+      const checkInId = req.params.checkInId;
+      const checkIn = await this.progressCheckInRepository.findById(userId, checkInId);
+      if (!checkIn) throw new NotFoundError('Progress check-in not found.');
+
+      if (Array.isArray(checkIn.photos)) {
+        await Promise.all(
+          checkIn.photos.map((photo) =>
+            this.imageStorage.deleteImage(photo.public_id, { deliveryType: photo.delivery_type || 'authenticated' }).catch(() => null)
+          )
+        );
+      }
+      await this.progressCheckInRepository.removeCheckIn(userId, checkInId);
+      if (this.patientActivityRepository?.record) {
+        await this.patientActivityRepository.record({
+          userId,
+          type: 'progress',
+          title: 'Progress check-in deleted',
+          summary: `Check-in ${checkInId} removed`,
+          actor: 'Patient app',
+          metadata: { check_in_id: checkInId },
+        }).catch(() => null);
+      }
+      return sendSuccess(res, { message: 'Progress check-in removed from clinical record.' });
     } catch (error) {
       next(error);
     }
