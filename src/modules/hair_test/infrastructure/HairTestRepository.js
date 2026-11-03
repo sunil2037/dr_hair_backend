@@ -2,7 +2,16 @@ import { IHairTestRepository } from '../domain/IHairTestRepository.js';
 import { HairTest } from '../domain/HairTest.js';
 import { store } from '../../../shared/database/store.js';
 import { isMongoConnected } from '../../../shared/database/mongodb.js';
-import { HairTestModel, nextId } from '../../../shared/database/models.js';
+import { HairTestModel, HairTestDraftModel, nextId } from '../../../shared/database/models.js';
+import { BadRequestError, NotFoundError } from '../../../shared/errors/index.js';
+
+const VALID_TRANSITIONS = {
+  draft: ['submitted', 'archived'],
+  submitted: ['under_review', 'reviewed', 'archived'],
+  under_review: ['reviewed', 'submitted', 'archived'],
+  reviewed: ['archived'],
+  archived: [],
+};
 
 const toHairTest = (record) => {
   if (!record) return null;
@@ -11,11 +20,23 @@ const toHairTest = (record) => {
 
 export class HairTestRepository extends IHairTestRepository {
   async create(data) {
+    const status = data.status || 'submitted';
+    const statusHistory = Array.isArray(data.status_history) && data.status_history.length > 0
+      ? data.status_history
+      : [{
+          status,
+          changed_at: new Date().toISOString(),
+          changed_by: data.changed_by || 'Patient',
+          note: data.note || 'Assessment submitted',
+        }];
+
     if (isMongoConnected()) {
       const id = await nextId('hairTests', 100);
       const year = new Date().getFullYear();
       const record = await HairTestModel.create({
         ...data,
+        status,
+        status_history: statusHistory,
         id,
         reference_no: 'HT-' + year + '-' + String(id).padStart(4, '0'),
         created_at: new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -28,6 +49,8 @@ export class HairTestRepository extends IHairTestRepository {
 
     const newRecord = {
       ...data,
+      status,
+      status_history: statusHistory,
       id: newId,
       reference_no: referenceNo,
       created_at: new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -40,10 +63,10 @@ export class HairTestRepository extends IHairTestRepository {
   async findByUserId(userId) {
     const numericId = parseInt(userId, 10);
     if (isMongoConnected()) {
-      const records = await HairTestModel.find({ userId: numericId }).sort({ created_at: -1 }).lean();
+      const records = await HairTestModel.find({ userId: numericId, status: { $ne: 'draft' } }).sort({ created_at: -1 }).lean();
       return records.map(toHairTest);
     }
-    const tests = store.hairTests.filter((t) => t.userId === numericId);
+    const tests = store.hairTests.filter((t) => t.userId === numericId && t.status !== 'draft');
     return tests.map((t) => new HairTest(t));
   }
 
@@ -114,24 +137,147 @@ export class HairTestRepository extends IHairTestRepository {
     return true;
   }
 
-  async list({ page = 1, limit = 25 } = {}) {
+  async updateStatus(referenceNo, newStatus, { changed_by = '', note = '' } = {}) {
+    const validStatuses = Object.keys(VALID_TRANSITIONS);
+    if (!validStatuses.includes(newStatus)) {
+      throw new BadRequestError(`Invalid assessment status: ${newStatus}. Allowed: ${validStatuses.join(', ')}.`);
+    }
+
+    if (isMongoConnected()) {
+      const record = await HairTestModel.findOne({ reference_no: referenceNo });
+      if (!record) throw new NotFoundError('Assessment not found for that reference number.');
+
+      const currentStatus = record.status || 'submitted';
+      const allowedNext = VALID_TRANSITIONS[currentStatus] || [];
+      if (currentStatus !== newStatus && !allowedNext.includes(newStatus)) {
+        throw new BadRequestError(`Cannot transition assessment status from ${currentStatus} to ${newStatus}. Allowed transitions: ${allowedNext.join(', ') || 'none'}.`);
+      }
+
+      const historyEntry = {
+        status: newStatus,
+        changed_at: new Date(),
+        changed_by: String(changed_by || '').trim(),
+        note: String(note || '').trim(),
+      };
+
+      record.status = newStatus;
+      if (!Array.isArray(record.status_history)) record.status_history = [];
+      record.status_history.push(historyEntry);
+      await record.save();
+      return toHairTest(record);
+    }
+
+    const test = store.hairTests.find((t) => t.reference_no === referenceNo);
+    if (!test) throw new NotFoundError('Assessment not found for that reference number.');
+
+    const currentStatus = test.status || 'submitted';
+    const allowedNext = VALID_TRANSITIONS[currentStatus] || [];
+    if (currentStatus !== newStatus && !allowedNext.includes(newStatus)) {
+      throw new BadRequestError(`Cannot transition assessment status from ${currentStatus} to ${newStatus}. Allowed transitions: ${allowedNext.join(', ') || 'none'}.`);
+    }
+
+    const historyEntry = {
+      status: newStatus,
+      changed_at: new Date().toISOString(),
+      changed_by: String(changed_by || '').trim(),
+      note: String(note || '').trim(),
+    };
+
+    test.status = newStatus;
+    if (!Array.isArray(test.status_history)) test.status_history = [];
+    test.status_history.push(historyEntry);
+    return new HairTest(test);
+  }
+
+  async saveDraft(userId, formData = {}, step = 0) {
+    const numericUserId = Number(userId);
+    if (!Number.isSafeInteger(numericUserId)) throw new BadRequestError('A valid numeric user id is required.');
+    const safeStep = Math.max(0, parseInt(step, 10) || 0);
+
+    if (isMongoConnected()) {
+      const draft = await HairTestDraftModel.findOneAndUpdate(
+        { userId: numericUserId },
+        { $set: { formData, step: safeStep, updated_at: new Date() } },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      ).lean();
+      return { userId: draft.userId, formData: draft.formData, step: draft.step, updated_at: draft.updated_at };
+    }
+
+    if (!Array.isArray(store.hairTestDrafts)) store.hairTestDrafts = [];
+    const index = store.hairTestDrafts.findIndex((d) => d.userId === numericUserId);
+    const draftRecord = {
+      userId: numericUserId,
+      formData,
+      step: safeStep,
+      updated_at: new Date().toISOString(),
+    };
+    if (index >= 0) {
+      store.hairTestDrafts[index] = draftRecord;
+    } else {
+      store.hairTestDrafts.push(draftRecord);
+    }
+    return draftRecord;
+  }
+
+  async getDraft(userId) {
+    const numericUserId = Number(userId);
+    if (!Number.isSafeInteger(numericUserId)) return null;
+
+    if (isMongoConnected()) {
+      const draft = await HairTestDraftModel.findOne({ userId: numericUserId }).lean();
+      return draft ? { userId: draft.userId, formData: draft.formData, step: draft.step, updated_at: draft.updated_at } : null;
+    }
+
+    if (!Array.isArray(store.hairTestDrafts)) store.hairTestDrafts = [];
+    const draft = store.hairTestDrafts.find((d) => d.userId === numericUserId);
+    return draft || null;
+  }
+
+  async deleteDraft(userId) {
+    const numericUserId = Number(userId);
+    if (!Number.isSafeInteger(numericUserId)) return false;
+
+    if (isMongoConnected()) {
+      const result = await HairTestDraftModel.deleteOne({ userId: numericUserId });
+      return result.deletedCount > 0;
+    }
+
+    if (!Array.isArray(store.hairTestDrafts)) store.hairTestDrafts = [];
+    const index = store.hairTestDrafts.findIndex((d) => d.userId === numericUserId);
+    if (index >= 0) {
+      store.hairTestDrafts.splice(index, 1);
+      return true;
+    }
+    return false;
+  }
+
+  async list({ page = 1, limit = 25, status } = {}) {
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
+
+    const filter = status ? { status } : { status: { $ne: 'draft' } };
+
     if (isMongoConnected()) {
       const [records, total] = await Promise.all([
-        HairTestModel.find()
+        HairTestModel.find(filter)
           .sort({ created_at: -1 })
           .skip((safePage - 1) * safeLimit)
           .limit(safeLimit)
           .lean(),
-        HairTestModel.countDocuments(),
+        HairTestModel.countDocuments(filter),
       ]);
       return { items: records.map(toHairTest), total, page: safePage, limit: safeLimit };
     }
+
+    const filtered = store.hairTests.filter((record) => {
+      if (status) return record.status === status;
+      return record.status !== 'draft';
+    });
+
     const start = (safePage - 1) * safeLimit;
     return {
-      items: store.hairTests.slice(start, start + safeLimit).map((record) => new HairTest(record)),
-      total: store.hairTests.length,
+      items: filtered.slice(start, start + safeLimit).map((record) => new HairTest(record)),
+      total: filtered.length,
       page: safePage,
       limit: safeLimit,
     };

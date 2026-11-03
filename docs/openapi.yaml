@@ -592,9 +592,9 @@ paths:
                 starts_at: { type: string, format: date-time, example: '2026-11-10T10:30:00+05:30' }
                 reason: { type: string, example: 'Hair loss consultation & trichoscopy' }
                 consultation_fee: { type: number, default: 500, example: 500 }
-                payment_method: { type: string, enum: [UPI, Card, Netbanking, Cash at Clinic], example: UPI }
-                payment_status: { type: string, enum: [Paid, Pending], default: Paid, example: Paid }
-                payment_transaction_id: { type: string, example: 'UPI-TXN-123456' }
+                payment_method: { type: string, enum: [Pay at clinic, UPI, Card, Netbanking], example: 'Pay at clinic' }
+                payment_status: { type: string, enum: [Pending], default: Pending, example: Pending, description: 'Must be Pending until provider payment gateway is integrated' }
+                payment_transaction_id: { type: string, nullable: true, example: null }
       responses:
         '201': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/BadRequest' }

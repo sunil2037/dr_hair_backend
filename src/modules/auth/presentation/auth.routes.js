@@ -46,6 +46,9 @@ export const createAuthRouter = ({ authController }) => {
   // POST /auth/verify_login_otp
   router.post('/verify_login_otp', verifyOtpLimiter, parseFormData, verifyOtpIdentityLimiter, authController.verifyLoginOtp);
   router.get('/session', authenticateToken, authController.getSession);
+  router.get('/me', authenticateToken, authController.getSession);
+  router.post('/refresh', authController.refreshToken);
+  router.post('/logout', authController.logout);
 
   return router;
 };

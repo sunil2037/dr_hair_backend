@@ -6,6 +6,8 @@ export class HairTest {
     id,
     userId,
     reference_no,
+    status = 'submitted',
+    status_history = [],
     created_at = new Date().toISOString(),
     // Personal Info
     full_name,
@@ -51,6 +53,8 @@ export class HairTest {
     this.id = id;
     this.userId = userId;
     this.reference_no = reference_no;
+    this.status = status;
+    this.status_history = Array.isArray(status_history) ? status_history : [];
     this.created_at = created_at;
     this.full_name = full_name;
     this.email = email;
@@ -93,6 +97,8 @@ export class HairTest {
     return {
       id: this.id,
       reference_no: this.reference_no,
+      status: this.status,
+      status_history: this.status_history,
       created_at: this.created_at,
       hair_loss_stage: this.hair_loss_stage,
       scalp_photos: this.scalp_photos,

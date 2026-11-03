@@ -1,11 +1,15 @@
 import { sendSuccess } from '../../../shared/utils/response.js';
+import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index.js';
+import { TokenService } from '../../../shared/utils/token.service.js';
 
 export class AuthController {
-  constructor({ sendOtpUseCase, verifyOtpUseCase, userRepository, hairTestRepository }) {
+  constructor({ sendOtpUseCase, verifyOtpUseCase, userRepository, hairTestRepository, sessionRepository, deviceTokenRepository }) {
     this.sendOtpUseCase = sendOtpUseCase;
     this.verifyOtpUseCase = verifyOtpUseCase;
     this.userRepository = userRepository;
     this.hairTestRepository = hairTestRepository;
+    this.sessionRepository = sessionRepository;
+    this.deviceTokenRepository = deviceTokenRepository;
   }
 
   sendLoginOtp = async (req, res, next) => {
@@ -26,7 +30,12 @@ export class AuthController {
     try {
       const login = req.body.login || req.body.mobile || req.body.email;
       const otp = req.body.otp;
-      const result = await this.verifyOtpUseCase.execute({ login, otp });
+      const deviceMetadata = {
+        platform: req.headers?.['x-platform'] || req.body?.platform || 'app',
+        userAgent: req.headers?.['user-agent'] || '',
+        ip: req.ip || '',
+      };
+      const result = await this.verifyOtpUseCase.execute({ login, otp, deviceMetadata });
 
       let hasCompletedAssessment = false;
       let nextStep = 'COMPLETE_PROFILE';
@@ -41,14 +50,108 @@ export class AuthController {
 
       return sendSuccess(res, {
         message: result.message,
+        data: {
+          token: result.token,
+          refresh_token: result.refreshToken,
+          session_id: result.sessionId,
+          is_registered: result.isRegistered,
+          is_admin: result.isAdmin,
+          has_completed_assessment: hasCompletedAssessment,
+          next_step: nextStep,
+          ...(result.user ? { user: result.user.toPublicProfile() } : {}),
+        },
         extra: {
           token: result.token,
+          refresh_token: result.refreshToken,
+          session_id: result.sessionId,
           is_registered: result.isRegistered,
           is_admin: result.isAdmin,
           has_completed_assessment: hasCompletedAssessment,
           next_step: nextStep,
           ...(result.user ? { data: result.user.toPublicProfile() } : {}),
         },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  refreshToken = async (req, res, next) => {
+    try {
+      const sessionId = req.body?.session_id || req.body?.sessionId;
+      const refreshToken = req.body?.refresh_token || req.body?.refreshToken;
+
+      if (!sessionId || !refreshToken) {
+        throw new BadRequestError('Both session_id and refresh_token are required.', null, 'VALIDATION_ERROR');
+      }
+
+      if (!this.sessionRepository) {
+        throw new UnauthorizedError('Session rotation unavailable.', null, 'AUTH_REQUIRED');
+      }
+
+      const rotated = await this.sessionRepository.verifyAndRotate({
+        sessionId,
+        refreshToken,
+      });
+
+      if (!rotated) {
+        throw new UnauthorizedError('Invalid or expired refresh token. Please sign in again.', null, 'AUTH_REQUIRED');
+      }
+
+      let user = null;
+      if (rotated.userType === 'patient') {
+        user = await this.userRepository.findById(Number(rotated.userId));
+      }
+
+      const tokenPayload = {
+        id: user ? user.id : rotated.userId,
+        login: user?.email || user?.phone || rotated.userId,
+        name: user?.name || null,
+        email: user?.email || null,
+        phone: user?.phone || null,
+        isRegistered: Boolean(user),
+        role: rotated.userType === 'super_admin' ? 'super_admin' : (rotated.userType === 'admin' ? 'admin' : 'user'),
+        sessionId: rotated.sessionId,
+      };
+
+      const newAccessToken = TokenService.generateAccessToken(tokenPayload);
+
+      return sendSuccess(res, {
+        message: 'Token refreshed successfully.',
+        data: {
+          token: newAccessToken,
+          access_token: newAccessToken,
+          refresh_token: rotated.refreshToken,
+          session_id: rotated.sessionId,
+          expires_at: rotated.expiresAt,
+        },
+        extra: {
+          token: newAccessToken,
+          refresh_token: rotated.refreshToken,
+          session_id: rotated.sessionId,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  logout = async (req, res, next) => {
+    try {
+      const sessionId = req.body?.session_id || req.body?.sessionId || req.user?.sessionId;
+      const deviceToken = req.body?.device_token || req.body?.deviceToken;
+
+      if (sessionId && this.sessionRepository) {
+        await this.sessionRepository.revoke(sessionId, 'USER_LOGOUT');
+      }
+
+      if (deviceToken && this.deviceTokenRepository) {
+        await this.deviceTokenRepository.removeToken(deviceToken);
+      }
+
+      return sendSuccess(res, {
+        message: 'Successfully signed out.',
+        data: { signed_out: true },
       });
     } catch (err) {
       next(err);
@@ -86,11 +189,12 @@ export class AuthController {
 
       return sendSuccess(res, {
         data: {
+          id: user?.id || req.user?.id || null,
           login: user?.email || user?.phone || req.user?.login || req.user?.email || req.user?.phone || null,
           name: user?.name || null,
           is_authenticated: true,
           is_registered: Boolean(user),
-          is_admin: req.user?.role === 'admin',
+          is_admin: req.user?.role === 'admin' || req.user?.role === 'super_admin',
           has_completed_assessment: hasCompletedAssessment,
           next_step: nextStep,
           latest_assessment: latestAssessment,

@@ -31,8 +31,13 @@ const adminAccountSchema = new Schema(
     email: { type: String, required: true, trim: true, lowercase: true, unique: true, index: true },
     name: { type: String, required: true, trim: true },
     passwordHash: { type: String, required: true, select: false },
-    role: { type: String, enum: ['admin'], default: 'admin', required: true },
+    role: { type: String, enum: ['admin', 'super_admin'], default: 'admin', required: true },
+    roleTemplate: { type: String, default: 'clinical-admin' },
+    permissions: { type: [String], default: [] },
+    permissionOverrides: { type: Schema.Types.Mixed, default: {} },
     active: { type: Boolean, default: true, index: true },
+    suspendedAt: { type: Date, default: null },
+    lastLoginAt: { type: Date, default: null },
     created_at: { type: Date, default: Date.now },
     updated_at: { type: Date, default: Date.now },
   },
@@ -50,14 +55,41 @@ const otpSchema = new Schema(
   { collection: 'otps', versionKey: false },
 );
 
+const hairTestStatusHistorySchema = new Schema(
+  {
+    status: { type: String, required: true },
+    changed_at: { type: Date, default: Date.now },
+    changed_by: { type: String, default: '' },
+    note: { type: String, default: '' },
+  },
+  { _id: false },
+);
+
 const hairTestSchema = new Schema(
   {
     id: { type: Number, required: true, unique: true, index: true },
     userId: { type: Number, index: true, default: null },
     reference_no: { type: String, required: true, unique: true, index: true },
+    status: {
+      type: String,
+      enum: ['draft', 'submitted', 'under_review', 'reviewed', 'archived'],
+      default: 'submitted',
+      index: true,
+    },
+    status_history: { type: [hairTestStatusHistorySchema], default: [] },
     created_at: { type: String, default: () => new Date().toISOString() },
   },
   { collection: 'hair_tests', strict: false, versionKey: false },
+);
+
+const hairTestDraftSchema = new Schema(
+  {
+    userId: { type: Number, required: true, unique: true, index: true },
+    formData: { type: Schema.Types.Mixed, default: {} },
+    step: { type: Number, default: 0 },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'hair_test_drafts', versionKey: false },
 );
 
 const prescribedMedicationSchema = new Schema(
@@ -390,10 +422,54 @@ const cartSchema = new Schema(
   { collection: 'carts', strict: false, versionKey: false },
 );
 
+const sessionSchema = new Schema(
+  {
+    sessionId: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    userType: { type: String, enum: ['patient', 'admin', 'super_admin'], default: 'patient', index: true },
+    refreshTokenHash: { type: String, required: true, index: true },
+    deviceMetadata: {
+      platform: { type: String, default: 'unknown' },
+      userAgent: { type: String, default: '' },
+      ip: { type: String, default: '' },
+      deviceId: { type: String, default: '' },
+    },
+    expiresAt: { type: Date, required: true, index: true },
+    revokedAt: { type: Date, default: null, index: true },
+    revokedReason: { type: String, default: null },
+    rotatedAt: { type: Date, default: null },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'auth_sessions', versionKey: false },
+);
+sessionSchema.index({ userId: 1, revokedAt: 1 });
+sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
+const auditEventSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    actorId: { type: String, required: true, index: true },
+    actorName: { type: String, default: '' },
+    actorEmail: { type: String, default: '' },
+    actorRole: { type: String, default: 'admin' },
+    target: { type: String, required: true, index: true },
+    targetType: { type: String, default: '' },
+    action: { type: String, required: true, index: true },
+    details: { type: Schema.Types.Mixed, default: {} },
+    ip: { type: String, default: '' },
+    userAgent: { type: String, default: '' },
+    created_at: { type: Date, default: Date.now, index: true },
+  },
+  { collection: 'audit_events', versionKey: false },
+);
+auditEventSchema.index({ created_at: -1, action: 1 });
+
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);
 export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.model('DrHairAdminAccount', adminAccountSchema);
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
 export const HairTestModel = mongoose.models.DrHairHairTest || mongoose.model('DrHairHairTest', hairTestSchema);
+export const HairTestDraftModel = mongoose.models.DrHairHairTestDraft || mongoose.model('DrHairHairTestDraft', hairTestDraftSchema);
 export const TreatmentModel = mongoose.models.DrHairTreatment || mongoose.model('DrHairTreatment', treatmentSchema);
 export const ClinicalReportModel = mongoose.models.DrHairClinicalReport || mongoose.model('DrHairClinicalReport', clinicalReportSchema);
 export const AppointmentModel = mongoose.models.DrHairAppointment || mongoose.model('DrHairAppointment', appointmentSchema);
@@ -406,6 +482,8 @@ export const NotificationModel = mongoose.models.DrHairNotification || mongoose.
 export const VideoModel = mongoose.models.DrHairVideo || mongoose.model('DrHairVideo', videoSchema);
 export const ProductModel = mongoose.models.DrHairProduct || mongoose.model('DrHairProduct', productSchema);
 export const CartModel = mongoose.models.DrHairCart || mongoose.model('DrHairCart', cartSchema);
+export const SessionModel = mongoose.models.DrHairSession || mongoose.model('DrHairSession', sessionSchema);
+export const AuditEventModel = mongoose.models.DrHairAuditEvent || mongoose.model('DrHairAuditEvent', auditEventSchema);
 export const RateLimitCounterModel = mongoose.models.DrHairRateLimitCounter || mongoose.model('DrHairRateLimitCounter', rateLimitCounterSchema);
 const CounterModel = mongoose.models.DrHairCounter || mongoose.model('DrHairCounter', counterSchema);
 

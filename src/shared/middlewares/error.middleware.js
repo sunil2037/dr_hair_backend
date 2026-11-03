@@ -9,6 +9,7 @@ export const errorHandler = (err, req, res, next) => {
   if (err instanceof AppError) {
     return sendError(res, {
       message: err.message,
+      code: err.code || 'INTERNAL_ERROR',
       statusCode: err.statusCode,
       details: err.details,
     });
@@ -18,6 +19,7 @@ export const errorHandler = (err, req, res, next) => {
   if (err.name === 'MulterError') {
     return sendError(res, {
       message: `File upload error: ${err.message}`,
+      code: err.code === 'LIMIT_FILE_SIZE' ? 'PAYLOAD_TOO_LARGE' : 'VALIDATION_ERROR',
       statusCode: err.code === 'LIMIT_FILE_SIZE' ? 413 : 400,
     });
   }

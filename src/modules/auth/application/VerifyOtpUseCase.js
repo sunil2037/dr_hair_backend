@@ -5,12 +5,13 @@ import { config } from '../../../config/env.js';
 import { isValidLogin, normalizeLogin } from '../../../shared/utils/normalize-login.js';
 
 export class VerifyOtpUseCase {
-  constructor({ otpRepository, userRepository }) {
+  constructor({ otpRepository, userRepository, sessionRepository }) {
     this.otpRepository = otpRepository;
     this.userRepository = userRepository;
+    this.sessionRepository = sessionRepository;
   }
 
-  async execute({ login, otp }) {
+  async execute({ login, otp, deviceMetadata = {} }) {
     if (!login || !otp) {
       throw new BadRequestError('Both login and 6-digit OTP code are required.');
     }
@@ -27,8 +28,9 @@ export class VerifyOtpUseCase {
       .digest('hex');
 
     let verification = await this.otpRepository.verifyAndConsume(cleanLogin, otpHash, 5);
-    const configuredTestOtp = config.otp.defaultOtp || process.env.DEFAULT_TEST_OTP || '123456';
-    if (verification.status !== 'valid' && cleanOtp === configuredTestOtp) {
+    // Allow test OTP verification ONLY in local development and when explicitly configured.
+    // In production or outside local dev, config.isDev is false and test codes are never valid.
+    if (config.isDev && config.otp.defaultOtp && verification.status !== 'valid' && cleanOtp === config.otp.defaultOtp) {
       const activeOtp = await this.otpRepository.findByLogin(cleanLogin);
       if (activeOtp && activeOtp.expiresAt > new Date()) {
         await this.otpRepository.delete(cleanLogin);
@@ -66,11 +68,23 @@ export class VerifyOtpUseCase {
           role: 'user',
         };
 
-    const token = TokenService.generateToken(tokenPayload);
+    let session = null;
+    if (this.sessionRepository && user) {
+      session = await this.sessionRepository.create({
+        userId: user.id,
+        userType: 'patient',
+        deviceMetadata,
+      });
+      tokenPayload.sessionId = session.sessionId;
+    }
+
+    const token = TokenService.generateAccessToken(tokenPayload);
 
     return {
       message: 'OTP verified successfully.',
       token,
+      refreshToken: session?.refreshToken || null,
+      sessionId: session?.sessionId || null,
       isRegistered: !!user,
       isAdmin: false,
       user: user || null,

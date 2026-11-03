@@ -38,10 +38,7 @@ test('Appointment Booking & Payment Endpoints', async (t) => {
 
   let bookedAppointmentId = '';
 
-  await t.test('patient creates in-clinic appointment with UPI payment (fee ₹500, status Paid)', async () => {
-    let responseData = null;
-    let statusCode = null;
-
+  await t.test('patient attempting to set Paid status without verified gateway is rejected', async () => {
     const req = {
       user: { id: userId, role: 'user' },
       body: {
@@ -51,6 +48,34 @@ test('Appointment Booking & Payment Endpoints', async (t) => {
         payment_method: 'UPI',
         payment_status: 'Paid',
         payment_transaction_id: 'UPI-TXN-99887766',
+      },
+    };
+    const res = {
+      status() { return this; },
+      json() { return this; },
+    };
+
+    await assert.rejects(
+      async () => {
+        await appointmentController.createPatient(req, res, (err) => {
+          if (err) throw err;
+        });
+      },
+      { name: 'BadRequestError' }
+    );
+  });
+
+  await t.test('patient creates in-clinic appointment with Pay at Clinic (fee ₹500, status Pending)', async () => {
+    let responseData = null;
+    let statusCode = null;
+
+    const req = {
+      user: { id: userId, role: 'user' },
+      body: {
+        starts_at: slot1,
+        reason: 'Receding hairline consultation & scalp check',
+        consultation_fee: 500,
+        payment_method: 'Pay at clinic',
       },
     };
     const res = {
@@ -73,9 +98,8 @@ test('Appointment Booking & Payment Endpoints', async (t) => {
     assert.ok(responseData.data.id.startsWith('APT-'));
     assert.ok(responseData.data.opd_token.startsWith('OPD-'));
     assert.equal(responseData.data.consultationFee, 500);
-    assert.equal(responseData.data.paymentStatus, 'Paid');
-    assert.equal(responseData.data.paymentMethod, 'UPI');
-    assert.equal(responseData.data.paymentTransactionId, 'UPI-TXN-99887766');
+    assert.equal(responseData.data.paymentStatus, 'Pending');
+    assert.equal(responseData.data.paymentMethod, 'Pay at clinic');
 
     bookedAppointmentId = responseData.data.id;
   });
@@ -157,7 +181,7 @@ test('Appointment Booking & Payment Endpoints', async (t) => {
     const item = items.find((i) => i.id === bookedAppointmentId);
     assert.ok(item);
     assert.equal(item.consultationFee, 500);
-    assert.equal(item.paymentStatus, 'Paid');
+    assert.equal(item.paymentStatus, 'Pending');
   });
 
   await t.test('admin marks cash appointment as Paid and confirms it', async () => {

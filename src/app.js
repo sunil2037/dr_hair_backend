@@ -35,12 +35,21 @@ export const createApp = () => {
         if (!origin) {
           return callback(null, true);
         }
-        if (
-          config.cors.origins.includes(origin) ||
-          config.cors.origins.includes('*') ||
-          (config.isDev && config.cors.origins.length === 0) ||
-          (typeof origin === 'string' && origin.endsWith('.vercel.app'))
-        ) {
+        if (config.isDev) {
+          if (
+            config.cors.origins.length === 0 ||
+            config.cors.origins.includes('*') ||
+            config.cors.origins.includes(origin) ||
+            origin.startsWith('http://localhost:') ||
+            origin.startsWith('http://127.0.0.1:')
+          ) {
+            return callback(null, true);
+          }
+          return callback(null, false);
+        }
+
+        // Production: strict allowlist matching only (no wildcard .vercel.app)
+        if (config.cors.origins.includes(origin)) {
           return callback(null, true);
         }
         return callback(null, false);

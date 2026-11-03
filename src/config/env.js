@@ -18,12 +18,45 @@ const environment = (process.env.NODE_ENV || 'production').trim().toLowerCase();
 // environment, including Preview deployments.
 const isVercelDeployment = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
 const isLocalDevelopment = environment === 'development' && !isVercelDeployment;
+const isProduction = environment === 'production' || isVercelDeployment;
+
 const configuredJwtSecret = process.env.JWT_SECRET?.trim() || '';
-const jwtSecret = configuredJwtSecret || '39sJRcn2Ngt9LKoNFB2AQRLZaGfXAooXSD_qP5bqRdbaCc06CyxYqZ2A3zxE-XhP';
+const configuredMongoUri = process.env.MONGODB_URI?.trim() || '';
+const configuredSuperAdminId = process.env.SUPER_ADMIN_ID?.trim().toLowerCase() || '';
+const configuredSuperAdminPasswordHash = process.env.SUPER_ADMIN_PASSWORD_HASH?.trim() || '';
+const configuredSuperAdminName = process.env.SUPER_ADMIN_NAME?.trim() || '';
 const configuredTestOtp = process.env.DEFAULT_TEST_OTP?.trim() || '';
+
+// Production Configuration Validation:
+// In production, reject startup if any critical production secret is absent.
+if (isProduction) {
+  const missing = [];
+  if (!configuredJwtSecret) missing.push('JWT_SECRET');
+  if (!configuredMongoUri) missing.push('MONGODB_URI');
+  if (!configuredSuperAdminId) missing.push('SUPER_ADMIN_ID');
+  if (!configuredSuperAdminPasswordHash) missing.push('SUPER_ADMIN_PASSWORD_HASH');
+  if (!configuredSuperAdminName) missing.push('SUPER_ADMIN_NAME');
+  if (missing.length > 0) {
+    throw new Error(
+      `[FATAL] Production startup blocked. Missing required production environment variables: ${missing.join(', ')}`
+    );
+  }
+}
+
+// Development/testing fallback values only (never used in production)
+const jwtSecret = configuredJwtSecret || (isLocalDevelopment || environment === 'test'
+  ? 'dev-local-drhair-jwt-secret-key-32-chars-minimum-security'
+  : '');
 const defaultTestOtp = isLocalDevelopment ? (configuredTestOtp || '123456') : null;
-const superAdminId = process.env.SUPER_ADMIN_ID?.trim().toLowerCase() || 'dr.hair@admin';
-const superAdminPasswordHash = process.env.SUPER_ADMIN_PASSWORD_HASH?.trim() || 'scrypt$16384$8$1$L1HToB6BXk92naHi-DiXEQ$FmjhFE_je15CM3_sJ8XmwI-NABF0KpNR34o5hQVNWeXxp9d1IFsI-UrV3Q1bfUwduxV_i98uh_ZDhmsjbflv9w';
+const superAdminId = configuredSuperAdminId || (isLocalDevelopment || environment === 'test'
+  ? 'dr.hair@admin'
+  : '');
+const superAdminPasswordHash = configuredSuperAdminPasswordHash || (isLocalDevelopment || environment === 'test'
+  ? 'scrypt$16384$8$1$L1HToB6BXk92naHi-DiXEQ$FmjhFE_je15CM3_sJ8XmwI-NABF0KpNR34o5hQVNWeXxp9d1IFsI-UrV3Q1bfUwduxV_i98uh_ZDhmsjbflv9w'
+  : '');
+const superAdminName = configuredSuperAdminName || (isLocalDevelopment || environment === 'test'
+  ? 'Dr. Hair Super Admin'
+  : '');
 
 if (!jwtSecret || jwtSecret.length < 32) {
   throw new Error('JWT_SECRET must be set to a unique value of at least 32 characters.');
@@ -42,6 +75,7 @@ export const config = {
   jwt: {
     secret: jwtSecret,
     expiresIn: process.env.JWT_EXPIRES_IN || '30d',
+    accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '1h',
   },
 
   mongodb: {

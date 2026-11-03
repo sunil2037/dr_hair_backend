@@ -108,9 +108,15 @@ export class AppointmentController {
       const actor = patient?.patient_code || 'Patient';
 
       const consultation_fee = req.body?.consultation_fee != null ? Number(req.body.consultation_fee) : 500;
-      const payment_method = String(req.body?.payment_method || 'UPI').trim();
-      const payment_status = ['Paid', 'Pending'].includes(req.body?.payment_status) ? req.body.payment_status : 'Paid';
-      const payment_transaction_id = String(req.body?.payment_transaction_id || `TXN-${Date.now()}`);
+
+      // Block patient-supplied 'Paid' status until verified payment gateway is integrated.
+      if (req.body?.payment_status === 'Paid') {
+        throw new BadRequestError('Online payment verification is not yet integrated. In-clinic appointments must be requested as Pending (Pay at clinic).');
+      }
+
+      const payment_method = String(req.body?.payment_method || 'Pay at clinic').trim();
+      const payment_status = 'Pending';
+      const payment_transaction_id = null;
 
       const appointment = await this.appointmentRepository.create({
         userId: Number(req.user.id),

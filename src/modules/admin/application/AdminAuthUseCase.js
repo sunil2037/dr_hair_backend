@@ -2,15 +2,17 @@ import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index
 import { config } from '../../../config/env.js';
 import { TokenService } from '../../../shared/utils/token.service.js';
 import { hashPassword, verifyPassword } from '../../../shared/utils/password-hasher.js';
+import { getEffectivePermissions } from '../../../shared/utils/admin-permissions.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export class AdminAuthUseCase {
-  constructor({ adminAccountRepository }) {
+  constructor({ adminAccountRepository, sessionRepository }) {
     this.adminAccountRepository = adminAccountRepository;
+    this.sessionRepository = sessionRepository;
   }
 
-  async execute({ email, password }) {
+  async execute({ email, password, deviceMetadata = {} }) {
     const login = typeof email === 'string' ? email.trim().toLowerCase() : '';
     if (
       !login || login.length > 254 || /\s/.test(login)
@@ -28,16 +30,40 @@ export class AdminAuthUseCase {
       throw new UnauthorizedError('Admin ID or password is incorrect.');
     }
 
+    const permissions = getEffectivePermissions(account);
+
+    let session = null;
+    if (this.sessionRepository) {
+      session = await this.sessionRepository.create({
+        userId: String(account.id),
+        userType: account.role === 'super_admin' ? 'super_admin' : 'admin',
+        deviceMetadata,
+      });
+    }
+
     const admin = {
       id: String(account.id),
       email: account.email,
       name: account.name,
       role: account.role,
+      roleTemplate: account.roleTemplate || (account.role === 'super_admin' ? 'super-admin' : 'clinical-admin'),
+      permissions,
     };
-    const token = TokenService.generateToken(
-      { ...admin, login: account.email, isRegistered: true },
-      { expiresIn: '12h' },
-    );
-    return { token, admin };
+
+    const tokenPayload = {
+      ...admin,
+      login: account.email,
+      isRegistered: true,
+      ...(session ? { sessionId: session.sessionId } : {}),
+    };
+
+    const token = TokenService.generateToken(tokenPayload, { expiresIn: '12h' });
+
+    return {
+      token,
+      admin,
+      refreshToken: session?.refreshToken || null,
+      sessionId: session?.sessionId || null,
+    };
   }
 }

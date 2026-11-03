@@ -3,6 +3,7 @@ import { sendSuccess } from '../../../shared/utils/response.js';
 import { config } from '../../../config/env.js';
 import { uploadClinicalReport, createClinicalReportDownloadUrl, deleteClinicalReport } from '../infrastructure/ClinicalReportStorage.js';
 import { progressCheckInResponse } from '../../../shared/utils/progress-checkin-response.js';
+import { getEffectivePermissions } from '../../../shared/utils/admin-permissions.js';
 
 const reportResponse = (report) => ({
   id: report.id,
@@ -29,7 +30,7 @@ const reportResponse = (report) => ({
 });
 
 export class AdminController {
-  constructor({ userRepository, hairTestRepository, treatmentRepository, clinicalReportRepository, reviewRepository, adminAccountRepository, createAdminAccountUseCase, imageStorage, appointmentRepository, patientActivityRepository, progressCheckInRepository }) {
+  constructor({ userRepository, hairTestRepository, treatmentRepository, clinicalReportRepository, reviewRepository, adminAccountRepository, createAdminAccountUseCase, imageStorage, appointmentRepository, patientActivityRepository, progressCheckInRepository, auditEventRepository }) {
     this.userRepository = userRepository;
     this.hairTestRepository = hairTestRepository;
     this.treatmentRepository = treatmentRepository;
@@ -41,18 +42,40 @@ export class AdminController {
     this.appointmentRepository = appointmentRepository;
     this.patientActivityRepository = patientActivityRepository;
     this.progressCheckInRepository = progressCheckInRepository;
+    this.auditEventRepository = auditEventRepository;
   }
 
   getCurrentAdmin = async (req, res, next) => {
     try {
+      const isSuper = req.user?.role === 'super_admin';
+      const account = isSuper
+        ? { role: 'super_admin', roleTemplate: 'super-admin' }
+        : await this.adminAccountRepository.findByLogin(req.user?.email || req.user?.login);
+
+      const effectivePermissions = getEffectivePermissions(account || req.user);
       return sendSuccess(res, {
         data: {
           id: req.user?.id ? String(req.user.id) : null,
           email: req.user?.login || req.user?.email || null,
           name: req.user?.name || null,
           role: req.user?.role || 'admin',
+          roleTemplate: account?.roleTemplate || (isSuper ? 'super-admin' : 'clinical-admin'),
+          permissions: effectivePermissions,
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listAuditEvents = async (req, res, next) => {
+    try {
+      if (!this.auditEventRepository) {
+        return sendSuccess(res, { data: { items: [] }, meta: { total: 0 } });
+      }
+      const { page, limit, action, actorId, target } = req.query;
+      const result = await this.auditEventRepository.list({ page, limit, action, actorId, target });
+      return sendSuccess(res, { data: { items: result.items }, meta: result.meta });
     } catch (error) {
       next(error);
     }

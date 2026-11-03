@@ -5,6 +5,8 @@
 
 export const store = {
   adminAccounts: [],
+  sessions: [],
+  auditEvents: [],
   users: [
     {
       id: 12,
@@ -23,11 +25,28 @@ export const store = {
 
   otps: new Map(), // key: login (phone/email), value: { otpHash, expiresAt, type }
 
+  hairTestDrafts: [],
+
   hairTests: [
     {
       id: 101,
       userId: 12,
       reference_no: 'HT-2026-0042',
+      status: 'reviewed',
+      status_history: [
+        {
+          status: 'submitted',
+          changed_at: '2026-03-15T14:20:00.000Z',
+          changed_by: 'Patient',
+          note: 'Submitted assessment',
+        },
+        {
+          status: 'reviewed',
+          changed_at: '2026-03-18T10:00:00.000Z',
+          changed_by: 'Dr. Hair Specialist',
+          note: 'Assigned treatment plan',
+        },
+      ],
       created_at: '2026-03-15 14:20:00',
       full_name: 'Sunil Sharma',
       email: 'user@example.com',

@@ -13,5 +13,21 @@ export class IHairTestRepository {
   async findByReferenceNo(referenceNo) {
     throw new Error('Method not implemented');
   }
+
+  async updateStatus(referenceNo, newStatus, meta) {
+    throw new Error('Method not implemented');
+  }
+
+  async saveDraft(userId, formData, step) {
+    throw new Error('Method not implemented');
+  }
+
+  async getDraft(userId) {
+    throw new Error('Method not implemented');
+  }
+
+  async deleteDraft(userId) {
+    throw new Error('Method not implemented');
+  }
 }
 

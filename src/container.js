@@ -18,6 +18,8 @@ import { PatientActivityRepository } from './modules/patient/infrastructure/Pati
 import { ProgressCheckInRepository } from './modules/patient/infrastructure/ProgressCheckInRepository.js';
 import { MediaReferenceRepository } from './modules/media/infrastructure/MediaReferenceRepository.js';
 import { PatientArchiveService } from './modules/admin/application/PatientArchiveService.js';
+import { SessionRepository } from './modules/auth/infrastructure/SessionRepository.js';
+import { AuditEventRepository } from './modules/admin/infrastructure/AuditEventRepository.js';
 
 // Use Cases
 import { SendOtpUseCase } from './modules/auth/application/SendOtpUseCase.js';
@@ -104,6 +106,8 @@ export const createContainer = (overrides = {}) => {
   const patientArchiveService =
     overrides.patientArchiveService || new PatientArchiveService({ clinicalReportRepository });
   const imageStorage = overrides.imageStorage || new CloudinaryImageStorage();
+  const sessionRepository = overrides.sessionRepository || new SessionRepository();
+  const auditEventRepository = overrides.auditEventRepository || new AuditEventRepository();
 
   // 2. Application Layer (Use Cases)
   const sendOtpUseCase = new SendOtpUseCase({
@@ -114,6 +118,7 @@ export const createContainer = (overrides = {}) => {
   const verifyOtpUseCase = new VerifyOtpUseCase({
     otpRepository,
     userRepository,
+    sessionRepository,
   });
 
   const checkUserUseCase = new CheckUserUseCase({
@@ -164,7 +169,7 @@ export const createContainer = (overrides = {}) => {
     reviewRepository,
   });
 
-  const adminAuthUseCase = new AdminAuthUseCase({ adminAccountRepository });
+  const adminAuthUseCase = new AdminAuthUseCase({ adminAccountRepository, sessionRepository });
   const createAdminAccountUseCase = new CreateAdminAccountUseCase({ adminAccountRepository });
   const listProductsUseCase = new ListProductsUseCase({ productRepository });
   const getProductByIdUseCase = new GetProductByIdUseCase({ productRepository });
@@ -184,6 +189,8 @@ export const createContainer = (overrides = {}) => {
     verifyOtpUseCase,
     userRepository,
     hairTestRepository,
+    sessionRepository,
+    deviceTokenRepository,
   });
 
   const userController = new UserController({
@@ -234,6 +241,7 @@ export const createContainer = (overrides = {}) => {
     patientActivityRepository,
     notificationRepository,
     deviceTokenRepository,
+    auditEventRepository,
   });
   const patientClinicalController = new PatientClinicalController({
     hairTestRepository,
@@ -257,6 +265,7 @@ export const createContainer = (overrides = {}) => {
     appointmentRepository,
     patientActivityRepository,
     progressCheckInRepository,
+    auditEventRepository,
   });
 
   // 4. Routes
@@ -297,6 +306,8 @@ export const createContainer = (overrides = {}) => {
       cartRepository,
       mediaReferenceRepository,
       adminAccountRepository,
+      sessionRepository,
+      auditEventRepository,
     },
     services: {
       smsService,

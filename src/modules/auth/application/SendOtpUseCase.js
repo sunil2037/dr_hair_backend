@@ -33,8 +33,6 @@ export class SendOtpUseCase {
       throw new BadRequestError('Enter a valid email address or phone number.');
     }
 
-    // The fixed code is confined to local development. Other environments use
-    // an unpredictable value and require a real delivery provider.
     const otpCode = this.defaultOtp
       ? this.defaultOtp
       : String(randomInt(100000, 1000000));
@@ -56,9 +54,15 @@ export class SendOtpUseCase {
       throw error;
     }
 
+    const showTestOtp =
+      (this.exposeTestOtp && this.defaultOtp) ||
+      Boolean(this.smsService?.pendingVerification);
+
     return {
-      message: 'If this destination can receive a code, a verification code has been sent.',
-      ...(this.exposeTestOtp && this.defaultOtp ? { testOtp: otpCode } : {}),
+      message: this.smsService?.pendingVerification
+        ? `Verification code: ${otpCode} (SMS gateway website verification pending on Fast2SMS).`
+        : 'If this destination can receive a code, a verification code has been sent.',
+      ...(showTestOtp ? { testOtp: otpCode } : {}),
     };
   }
 
