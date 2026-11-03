@@ -73,10 +73,8 @@ describe('Phase 0 - Release Safety & Truthfulness Guardrails', () => {
 
       // Temporarily ensure config.isDev is false
       const originalIsDev = config.isDev;
-      const originalDefaultOtp = config.otp.defaultOtp;
       try {
         config.isDev = false;
-        config.otp.defaultOtp = null;
 
         await assert.rejects(
           async () => {
@@ -91,7 +89,6 @@ describe('Phase 0 - Release Safety & Truthfulness Guardrails', () => {
         assert.equal(deletedLogin, null);
       } finally {
         config.isDev = originalIsDev;
-        config.otp.defaultOtp = originalDefaultOtp;
       }
     });
   });

@@ -12,48 +12,96 @@ const maskDestination = (destination) => {
 };
 
 export class SmsService {
-  constructor({ fast2smsConfig = config.fast2sms, isDev = config.isDev } = {}) {
-    this.fast2smsConfig = fast2smsConfig;
-    this.isDev = isDev;
-    this.pendingVerification = false;
+  constructor(options = {}) {
+    const hasFast2sms = 'fast2smsConfig' in options;
+    const hasTwoFactor = 'twoFactorConfig' in options;
+
+    this.twoFactorConfig = options.twoFactorConfig || (hasFast2sms && !hasTwoFactor ? { apiKey: '' } : config.twoFactor);
+    this.fast2smsConfig = options.fast2smsConfig || config.fast2sms;
+
+    if (options.provider) {
+      this.provider = options.provider;
+    } else if (hasFast2sms && !hasTwoFactor) {
+      this.provider = 'fast2sms';
+    } else if (hasTwoFactor && !hasFast2sms) {
+      this.provider = '2factor';
+    } else if (config.smsProvider === '2factor' || this.twoFactorConfig?.apiKey) {
+      this.provider = '2factor';
+    } else {
+      this.provider = 'fast2sms';
+    }
   }
 
   /**
-   * Sends OTP to phone/email.
-   * If FAST2SMS_API_KEY is configured in env, delivers via Fast2SMS Bulk V2 OTP route.
-   * If key is absent, fails closed in production (503); logs in local development.
+   * Sends OTP through 2Factor.in (primary) or Fast2SMS (fallback).
    */
   async sendOtp(destination, otpCode) {
-    this.pendingVerification = false;
     const raw = String(destination || '').trim();
 
-    // 1. Destination is an email address
+    // OTP is SMS-only in every environment.
     if (raw.includes('@')) {
-      if (!this.isDev) {
-        throw new ServiceUnavailableError('Email OTP delivery is not configured. Please use phone OTP.');
-      }
-      logger.info(`[OTP Delivery] Accepted email verification request for ${maskDestination(raw)}`);
-      return true;
+      throw new ServiceUnavailableError('Email OTP delivery is not configured. SMS OTP requires a phone number.');
     }
 
-    // 2. Extract 10-digit Indian phone number
+    // Extract 10-digit Indian phone number
     const digits = raw.replace(/\D/g, '');
     const phone10 = digits.length >= 10 ? digits.slice(-10) : '';
 
-    const apiKey = this.fast2smsConfig?.apiKey;
-    if (!apiKey) {
-      if (!this.isDev) {
-        throw new ServiceUnavailableError('OTP delivery unavailable. SMS gateway is not configured.');
-      }
-      logger.info(
-        `[OTP Delivery] Accepted verification request for ${maskDestination(phone10 || raw)}`
-      );
-      return true;
+    if (!phone10 || phone10.length !== 10) {
+      logger.warn(`[SmsService] Unable to extract valid 10-digit mobile number from ${maskDestination(raw)}`);
+      throw new BadGatewayError('SMS delivery failed: invalid phone number.');
     }
 
-    if (!phone10 || phone10.length !== 10) {
-      logger.warn(`[Fast2SMS] Unable to extract valid 10-digit mobile number from ${maskDestination(raw)}`);
-      return false;
+    if (this.provider === 'fast2sms') {
+      return this._sendFast2Sms(phone10, otpCode);
+    }
+
+    return this._send2Factor(phone10, otpCode);
+  }
+
+  async _send2Factor(phone10, otpCode) {
+    const apiKey = this.twoFactorConfig?.apiKey;
+    if (!apiKey) {
+      throw new ServiceUnavailableError(
+        'OTP delivery unavailable. Configure TWOFACTOR_API_KEY for this environment.',
+      );
+    }
+
+    const internationalPhone = `+91${phone10}`;
+    const template = this.twoFactorConfig.templateName ? `/${encodeURIComponent(this.twoFactorConfig.templateName)}` : '';
+    const url = `https://2factor.in/API/V1/${encodeURIComponent(apiKey)}/SMS/${encodeURIComponent(internationalPhone)}/${encodeURIComponent(otpCode)}${template}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (data && String(data.Status || '').toLowerCase() === 'success') {
+        logger.info(
+          `[2Factor] Successfully dispatched OTP to ${maskDestination(phone10)} (session: ${data.Details || 'ok'})`
+        );
+        return true;
+      }
+
+      const errMsg = data?.Details || data?.message || 'Gateway rejected SMS request';
+      logger.error(`[2Factor] Gateway error for ${maskDestination(phone10)}: ${errMsg}`);
+      throw new BadGatewayError(`SMS delivery failed: ${errMsg}`);
+    } catch (err) {
+      if (err instanceof BadGatewayError || err instanceof ServiceUnavailableError) throw err;
+      logger.error(`[2Factor] Network error dispatching SMS: ${err.message}`);
+      throw new BadGatewayError('Failed to connect to SMS delivery gateway. Please try again.');
+    }
+  }
+
+  async _sendFast2Sms(phone10, otpCode) {
+    const apiKey = this.fast2smsConfig?.apiKey;
+    if (!apiKey) {
+      throw new ServiceUnavailableError(
+        'OTP delivery unavailable. Configure FAST2SMS_API_KEY for this environment.',
+      );
     }
 
     try {
@@ -65,7 +113,7 @@ export class SmsService {
           Accept: 'application/json',
         },
         body: JSON.stringify({
-          route: this.fast2smsConfig.route || 'otp',
+          route: this.fast2smsConfig?.route || 'otp',
           variables_values: String(otpCode),
           numbers: phone10,
         }),

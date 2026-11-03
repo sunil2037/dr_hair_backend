@@ -4,9 +4,16 @@ import { createContainer } from '../src/container.js';
 import { SmsService } from '../src/modules/auth/infrastructure/SmsService.js';
 
 describe('Auth Module - Clean Architecture Tests', () => {
-  // Use mock SMS service in unit tests to prevent hitting external Fast2SMS network
+  // Use an injected mock SMS service so tests never contact Fast2SMS.
+  const sentOtps = new Map();
+  const mockSmsService = {
+    async sendOtp(destination, code) {
+      sentOtps.set(destination, code);
+      return true;
+    },
+  };
   const container = createContainer({
-    smsService: new SmsService({ fast2smsConfig: { apiKey: '', route: 'otp' } }),
+    smsService: mockSmsService,
   });
   const { sendOtpUseCase, verifyOtpUseCase } = container.useCases;
 
@@ -23,7 +30,7 @@ describe('Auth Module - Clean Architecture Tests', () => {
   it('should verify OTP successfully and issue JWT token', async () => {
     const verifyResult = await verifyOtpUseCase.execute({
       login: '9876543210',
-      otp: '123456',
+      otp: sentOtps.get('9876543210'),
     });
 
     assert.equal(verifyResult.message, 'OTP verified successfully.');
@@ -55,7 +62,7 @@ describe('Auth Module - Clean Architecture Tests', () => {
     const { authController } = container.controllers;
     const { sendOtpUseCase } = container.useCases;
     await sendOtpUseCase.execute({ login: '9876543210' });
-    const req = { body: { login: '9876543210', otp: '123456' } };
+    const req = { body: { login: '9876543210', otp: sentOtps.get('9876543210') } };
     let jsonResult = null;
     const res = {
       status(code) {
@@ -107,18 +114,22 @@ describe('Auth Module - Clean Architecture Tests', () => {
   });
 
   describe('Fast2SMS Integration in SmsService', () => {
-    it('returns true in mock mode when FAST2SMS_API_KEY is not configured', async () => {
+    it('fails closed when FAST2SMS_API_KEY is not configured in any environment', async () => {
       const { SmsService } = await import('../src/modules/auth/infrastructure/SmsService.js');
       const service = new SmsService({ fast2smsConfig: { apiKey: '', route: 'otp' } });
-      const result = await service.sendOtp('9876543210', '123456');
-      assert.equal(result, true);
+      await assert.rejects(
+        () => service.sendOtp('9876543210', '123456'),
+        { name: 'ServiceUnavailableError', statusCode: 503 },
+      );
     });
 
-    it('returns true without calling SMS gateway for email destinations', async () => {
+    it('rejects email destinations because OTP is SMS-only', async () => {
       const { SmsService } = await import('../src/modules/auth/infrastructure/SmsService.js');
       const service = new SmsService({ fast2smsConfig: { apiKey: 'dummy_key', route: 'otp' } });
-      const result = await service.sendOtp('patient@example.com', '123456');
-      assert.equal(result, true);
+      await assert.rejects(
+        () => service.sendOtp('patient@example.com', '123456'),
+        { name: 'ServiceUnavailableError', statusCode: 503 },
+      );
     });
 
     it('dispatches to Fast2SMS API when apiKey is provided and cleans phone numbers', async () => {
@@ -190,6 +201,67 @@ describe('Auth Module - Clean Architecture Tests', () => {
         globalThis.fetch = originalFetch;
       }
     });
+
+    it('dispatches to 2Factor.in API with +91 format and handles Success response', async () => {
+      const { SmsService } = await import('../src/modules/auth/infrastructure/SmsService.js');
+      const originalFetch = globalThis.fetch;
+      let requestedUrl = null;
+
+      globalThis.fetch = async (url) => {
+        requestedUrl = url;
+        return {
+          ok: true,
+          json: async () => ({
+            Status: 'Success',
+            Details: '2factor-session-uuid-1234',
+          }),
+        };
+      };
+
+      try {
+        const service = new SmsService({
+          twoFactorConfig: { apiKey: 'test_2factor_key' },
+          provider: '2factor',
+        });
+
+        const result = await service.sendOtp('9876543210', '543210');
+        assert.equal(result, true);
+        assert.equal(requestedUrl, 'https://2factor.in/API/V1/test_2factor_key/SMS/%2B919876543210/543210');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('throws BadGatewayError when 2Factor.in returns Status: Error', async () => {
+      const { SmsService } = await import('../src/modules/auth/infrastructure/SmsService.js');
+      const originalFetch = globalThis.fetch;
+
+      globalThis.fetch = async () => ({
+        ok: true,
+        json: async () => ({
+          Status: 'Error',
+          Details: 'Invalid Phone Number',
+        }),
+      });
+
+      try {
+        const service = new SmsService({
+          twoFactorConfig: { apiKey: 'test_2factor_key' },
+          provider: '2factor',
+        });
+
+        await assert.rejects(
+          async () => {
+            await service.sendOtp('9876543210', '123456');
+          },
+          {
+            name: 'BadGatewayError',
+            statusCode: 502,
+          }
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
   });
 });
-

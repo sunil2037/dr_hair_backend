@@ -25,7 +25,6 @@ const configuredMongoUri = process.env.MONGODB_URI?.trim() || '';
 const configuredSuperAdminId = process.env.SUPER_ADMIN_ID?.trim().toLowerCase() || '';
 const configuredSuperAdminPasswordHash = process.env.SUPER_ADMIN_PASSWORD_HASH?.trim() || '';
 const configuredSuperAdminName = process.env.SUPER_ADMIN_NAME?.trim() || '';
-const configuredTestOtp = process.env.DEFAULT_TEST_OTP?.trim() || '';
 
 // Production Configuration Validation:
 // In production, reject startup if any critical production secret is absent.
@@ -43,11 +42,11 @@ if (isProduction) {
   }
 }
 
-// Development/testing fallback values only (never used in production)
+// Development/testing fallback values only (never used in production). OTP
+// delivery has no fallback: every environment must use the SMS provider.
 const jwtSecret = configuredJwtSecret || (isLocalDevelopment || environment === 'test'
   ? 'dev-local-drhair-jwt-secret-key-32-chars-minimum-security'
   : '');
-const defaultTestOtp = isLocalDevelopment ? (configuredTestOtp || '123456') : null;
 const superAdminId = configuredSuperAdminId || (isLocalDevelopment || environment === 'test'
   ? 'dr.hair@admin'
   : '');
@@ -62,13 +61,9 @@ if (!jwtSecret || jwtSecret.length < 32) {
   throw new Error('JWT_SECRET must be set to a unique value of at least 32 characters.');
 }
 
-if (isLocalDevelopment && configuredTestOtp && !/^\d{6}$/.test(configuredTestOtp)) {
-  throw new Error('DEFAULT_TEST_OTP must contain exactly 6 digits when configured.');
-}
-
 export const config = {
   env: environment,
-  isDev: isLocalDevelopment,
+  isDev: isLocalDevelopment || environment === 'test',
   port: parseInt(process.env.PORT, 10) || 5001,
   baseUrl: process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`,
   
@@ -116,9 +111,18 @@ export const config = {
   },
   
   otp: {
-    defaultOtp: defaultTestOtp,
-    exposeTestOtp: isLocalDevelopment && process.env.EXPOSE_TEST_OTP?.trim().toLowerCase() === 'true',
     expiryMinutes: parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 10,
+  },
+
+  smsProvider: process.env.SMS_PROVIDER?.trim().toLowerCase() || '2factor',
+
+  twoFactor: {
+    apiKey:
+      process.env.TWOFACTOR_API_KEY?.trim() ||
+      process.env.TWO_FACTOR_API_KEY?.trim() ||
+      process.env.FAST2SMS_API_KEY?.trim() ||
+      '',
+    templateName: process.env.TWOFACTOR_TEMPLATE_NAME?.trim() || '',
   },
 
   fast2sms: {
@@ -126,4 +130,3 @@ export const config = {
     route: process.env.FAST2SMS_ROUTE?.trim() || 'otp',
   },
 };
-

@@ -1,6 +1,6 @@
 import { createHmac, randomInt } from 'node:crypto';
 import { Otp } from '../domain/Otp.js';
-import { AppError, BadRequestError } from '../../../shared/errors/index.js';
+import { BadRequestError } from '../../../shared/errors/index.js';
 import { config } from '../../../config/env.js';
 import { isValidLogin, normalizeLogin } from '../../../shared/utils/normalize-login.js';
 
@@ -8,34 +8,29 @@ export class SendOtpUseCase {
   constructor({
     otpRepository,
     smsService,
-    environment = config.env,
-    defaultOtp = config.otp.defaultOtp,
-    exposeTestOtp = config.otp.exposeTestOtp,
     jwtSecret = config.jwt.secret,
     expiryMinutes = config.otp.expiryMinutes,
   }) {
     this.otpRepository = otpRepository;
     this.smsService = smsService;
-    this.environment = environment;
-    this.defaultOtp = environment === 'development' ? defaultOtp : null;
-    this.exposeTestOtp = environment === 'development' && exposeTestOtp;
     this.jwtSecret = jwtSecret;
     this.expiryMinutes = expiryMinutes;
   }
 
   async execute({ login }) {
     if (!login || typeof login !== 'string' || login.trim() === '') {
-      throw new BadRequestError('Mobile number or email address is required.');
+      throw new BadRequestError('Mobile number is required.');
     }
 
     const cleanLogin = normalizeLogin(login);
     if (!isValidLogin(cleanLogin)) {
-      throw new BadRequestError('Enter a valid email address or phone number.');
+      throw new BadRequestError('Enter a valid phone number for SMS OTP.');
+    }
+    if (cleanLogin.includes('@')) {
+      throw new BadRequestError('SMS OTP is available only for phone numbers.');
     }
 
-    const otpCode = this.defaultOtp
-      ? this.defaultOtp
-      : String(randomInt(100000, 1000000));
+    const otpCode = String(randomInt(100000, 1000000));
     const otpHash = this._hashOtp(cleanLogin, otpCode);
 
     const expiresAt = new Date(Date.now() + this.expiryMinutes * 60 * 1000);
@@ -54,11 +49,8 @@ export class SendOtpUseCase {
       throw error;
     }
 
-    const showTestOtp = this.exposeTestOtp && this.defaultOtp;
-
     return {
       message: 'If this destination can receive a code, a verification code has been sent.',
-      ...(showTestOtp ? { testOtp: otpCode } : {}),
     };
   }
 

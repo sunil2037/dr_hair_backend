@@ -3,13 +3,32 @@ import { authenticateToken } from '../../../shared/middlewares/auth.middleware.j
 import { requireAdmin, requireSuperAdmin, requirePermission, requireAnyPermission } from '../../../shared/middlewares/admin.middleware.js';
 import { uploadClinicalReportFile } from '../../../shared/middlewares/clinical-report-upload.middleware.js';
 
-export const createAdminRouter = ({ adminController, notificationController, videoController, appointmentController, contentController }) => {
+export const createAdminRouter = ({ adminController, notificationController, videoController, appointmentController, contentController, commerceController }) => {
   const router = Router();
   router.use(authenticateToken, requireAdmin);
 
   router.get('/me', adminController.getCurrentAdmin);
+  router.get('/dashboard/summary', adminController.getDashboardSummary);
   router.get('/accounts', requireSuperAdmin, adminController.listAdminAccounts);
   router.post('/accounts', requireSuperAdmin, adminController.createAdminAccount);
+  router.post('/accounts/invite', requireSuperAdmin, adminController.inviteAdmin);
+  router.patch('/accounts/:id/access', requireSuperAdmin, adminController.updateAdminAccess);
+  router.patch('/accounts/:id/status', requireSuperAdmin, adminController.setAdminStatus);
+  router.post('/accounts/:id/rotate-password', requireSuperAdmin, adminController.rotateAdminPassword);
+
+  // Feature Flags & Releases
+  router.get('/features', requireSuperAdmin, adminController.listFeatureFlags);
+  router.patch('/features/:key', requireSuperAdmin, adminController.updateFeatureFlag);
+  router.get('/releases', requireSuperAdmin, adminController.listReleasePolicies);
+  router.put('/releases/:platform', requireSuperAdmin, adminController.updateReleasePolicy);
+
+  // Audit Logs & Redacted Exports
+  router.get('/audit-logs', requireAnyPermission('audit.view'), adminController.listAuditLogs);
+  router.get('/audit-logs/export', requireAnyPermission('audit.view', 'audit.export'), adminController.exportAuditLogs);
+
+  // Operational Exports
+  router.get('/exports/patients', requirePermission('patients.export'), adminController.exportPatients);
+  router.get('/exports/appointments', requireAnyPermission('bookings.manage', 'appointments.export'), adminController.exportAppointments);
 
   // Clinic appointments and availability
   router.get('/appointments', requirePermission('bookings.manage'), appointmentController.listAdmin);
@@ -67,6 +86,16 @@ export const createAdminRouter = ({ adminController, notificationController, vid
     router.patch('/content/:id/status', requireSuperAdmin, contentController.updateStatus);
     router.put('/content/:id', requireSuperAdmin, contentController.updateContent);
     router.delete('/content/:id', requireSuperAdmin, contentController.deleteContent);
+  }
+
+  if (commerceController) {
+    router.get('/orders', requirePermission('orders.manage'), (req, res, next) => commerceController.listAdminOrders(req, res, next));
+    router.get('/orders/:orderId', requirePermission('orders.manage'), (req, res, next) => commerceController.getAdminOrder(req, res, next));
+    router.patch('/orders/:orderId/fulfillment', requirePermission('orders.manage'), (req, res, next) => commerceController.updateFulfillment(req, res, next));
+    router.post('/orders/:orderId/cancel', requirePermission('orders.manage'), (req, res, next) => commerceController.cancelAdminOrder(req, res, next));
+    router.post('/orders/:orderId/refund', requirePermission('orders.manage'), (req, res, next) => commerceController.refundAdminOrder(req, res, next));
+    router.post('/products/:productId/inventory', requirePermission('products.manage'), (req, res, next) => commerceController.restockProduct(req, res, next));
+    router.get('/products/:productId/inventory', requirePermission('products.manage'), (req, res, next) => commerceController.getProductLedger(req, res, next));
   }
 
   return router;

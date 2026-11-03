@@ -11,3 +11,4 @@ export const createContentRouter = ({ contentController }) => {
 
   return router;
 };
+

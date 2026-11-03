@@ -4,6 +4,7 @@ import { config } from '../../../config/env.js';
 import { uploadClinicalReport, createClinicalReportDownloadUrl, deleteClinicalReport } from '../infrastructure/ClinicalReportStorage.js';
 import { progressCheckInResponse } from '../../../shared/utils/progress-checkin-response.js';
 import { getEffectivePermissions } from '../../../shared/utils/admin-permissions.js';
+import { hashPassword } from '../../../shared/utils/password-hasher.js';
 
 const reportResponse = (report) => ({
   id: report.id,
@@ -30,7 +31,24 @@ const reportResponse = (report) => ({
 });
 
 export class AdminController {
-  constructor({ userRepository, hairTestRepository, treatmentRepository, clinicalReportRepository, reviewRepository, adminAccountRepository, createAdminAccountUseCase, imageStorage, appointmentRepository, patientActivityRepository, progressCheckInRepository, auditEventRepository }) {
+  constructor({
+    userRepository,
+    hairTestRepository,
+    treatmentRepository,
+    clinicalReportRepository,
+    reviewRepository,
+    adminAccountRepository,
+    createAdminAccountUseCase,
+    imageStorage,
+    appointmentRepository,
+    patientActivityRepository,
+    progressCheckInRepository,
+    auditEventRepository,
+    featureFlagRepository,
+    appReleasePolicyRepository,
+    productRepository,
+    sessionRepository,
+  }) {
     this.userRepository = userRepository;
     this.hairTestRepository = hairTestRepository;
     this.treatmentRepository = treatmentRepository;
@@ -43,6 +61,10 @@ export class AdminController {
     this.patientActivityRepository = patientActivityRepository;
     this.progressCheckInRepository = progressCheckInRepository;
     this.auditEventRepository = auditEventRepository;
+    this.featureFlagRepository = featureFlagRepository;
+    this.appReleasePolicyRepository = appReleasePolicyRepository;
+    this.productRepository = productRepository;
+    this.sessionRepository = sessionRepository;
   }
 
   getCurrentAdmin = async (req, res, next) => {
@@ -634,6 +656,473 @@ export class AdminController {
       const review = await this.reviewRepository.updateStatus(id, status);
       if (!review) throw new NotFoundError('Review not found.');
       return sendSuccess(res, { message: 'Review status updated.', data: review });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getDashboardSummary = async (req, res, next) => {
+    try {
+      let totalPatients = 0;
+      if (this.userRepository?.count) {
+        totalPatients = await this.userRepository.count();
+      } else if (this.userRepository?.list) {
+        const u = await this.userRepository.list({ limit: 1 });
+        totalPatients = u?.total || 0;
+      }
+
+      let totalAppointments = 0;
+      let todayAppointments = 0;
+      let pendingAppointments = 0;
+      let confirmedAppointments = 0;
+      let completedAppointments = 0;
+      if (this.appointmentRepository?.list) {
+        const appts = await this.appointmentRepository.list({ limit: 500 });
+        const items = Array.isArray(appts) ? appts : (appts?.items || []);
+        totalAppointments = Array.isArray(appts) ? appts.length : (appts?.total || items.length);
+        const todayStr = new Date().toISOString().slice(0, 10);
+        todayAppointments = items.filter(
+          (a) => (a.starts_at || '').slice(0, 10) === todayStr && !['Cancelled', 'No show'].includes(a.status),
+        ).length;
+        pendingAppointments = items.filter((a) => a.status === 'Pending').length;
+        confirmedAppointments = items.filter((a) => a.status === 'Confirmed').length;
+        completedAppointments = items.filter((a) => a.status === 'Completed').length;
+      }
+
+      let totalAssessments = 0;
+      let pendingAssessments = 0;
+      if (this.hairTestRepository?.listAdmin) {
+        const tests = await this.hairTestRepository.listAdmin({ limit: 500 });
+        const items = Array.isArray(tests) ? tests : (tests?.items || []);
+        totalAssessments = Array.isArray(tests) ? tests.length : (tests?.total || items.length);
+        pendingAssessments = items.filter((t) => t.status === 'Submitted' || t.status === 'Review' || !t.reviewed).length;
+      }
+
+      let totalReports = 0;
+      let sharedReports = 0;
+      if (this.clinicalReportRepository?.listAll) {
+        const reps = await this.clinicalReportRepository.listAll();
+        totalReports = reps.length;
+        sharedReports = reps.filter((r) => r.visibility === 'Shared').length;
+      }
+
+      let totalProducts = 0;
+      let lowStockProducts = 0;
+      if (this.productRepository?.list) {
+        const prods = await this.productRepository.list({ limit: 100 });
+        const items = prods?.items || [];
+        totalProducts = prods?.total || items.length;
+        lowStockProducts = items.filter((p) => (p.stock || p.inventory_count || 0) < 10).length;
+      }
+
+      let recentActivity = [];
+      if (this.auditEventRepository?.list) {
+        const logs = await this.auditEventRepository.list({ limit: 10 });
+        recentActivity = (logs?.items || []).map((e) => ({
+          id: e.id,
+          who: e.actor,
+          action: e.action,
+          target: e.target,
+          type: e.targetType || 'System',
+          time: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(),
+        }));
+      }
+
+      return sendSuccess(res, {
+        data: {
+          patients: { total: totalPatients },
+          appointments: {
+            total: totalAppointments,
+            today: todayAppointments,
+            pending: pendingAppointments,
+            confirmed: confirmedAppointments,
+            completed: completedAppointments,
+          },
+          assessments: {
+            total: totalAssessments,
+            pending: pendingAssessments,
+          },
+          reports: {
+            total: totalReports,
+            shared: sharedReports,
+          },
+          catalog: {
+            totalProducts,
+            lowStockProducts,
+          },
+          recentActivity,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  inviteAdmin = async (req, res, next) => {
+    try {
+      const actor = req.user?.email || 'Super Admin';
+      const { name, email, roleTemplate, permissions, permissionOverrides } = req.body || {};
+      const { account, generatedPassword } = await this.createAdminAccountUseCase.execute({
+        name,
+        email,
+        roleTemplate,
+        permissions,
+        permissionOverrides,
+      });
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'admin.invited',
+          target: `admin:${account.email}`,
+          metadata: { id: account.id, email: account.email, roleTemplate },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, {
+        statusCode: 201,
+        message: 'Admin account invited successfully.',
+        data: {
+          admin: account,
+          credentials: {
+            login_id: account.email,
+            password: generatedPassword,
+          },
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateAdminAccess = async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const actor = req.user?.email || 'Super Admin';
+      const { roleTemplate, permissions, permissionOverrides } = req.body || {};
+      const updated = await this.adminAccountRepository.updateAccess(id, {
+        roleTemplate,
+        permissions,
+        permissionOverrides,
+      });
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'admin.access_updated',
+          target: `admin:${updated.email}`,
+          metadata: { id, roleTemplate, permissionsCount: updated.effectivePermissions?.length },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, { message: 'Admin access updated successfully.', data: updated });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  setAdminStatus = async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const actor = req.user?.email || 'Super Admin';
+      let { active, status } = req.body || {};
+
+      if (typeof active !== 'boolean') {
+        if (typeof status === 'string') {
+          active = status.toLowerCase() === 'active';
+        } else {
+          throw new BadRequestError('active boolean flag or status ("active" | "suspended") is required.');
+        }
+      }
+
+      const updated = active
+        ? await this.adminAccountRepository.reactivate(id)
+        : await this.adminAccountRepository.suspend(id);
+
+      if (!active && this.sessionRepository?.revokeByUserId) {
+        await this.sessionRepository.revokeByUserId(id, 'ACCOUNT_SUSPENDED').catch(() => null);
+      }
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: active ? 'admin.reactivated' : 'admin.suspended',
+          target: `admin:${updated.email}`,
+          metadata: { id, active },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, {
+        message: active ? 'Admin account reactivated.' : 'Admin account suspended.',
+        data: updated,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  rotateAdminPassword = async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const actor = req.user?.email || 'Super Admin';
+      const { newPassword } = req.body || {};
+
+      if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+        throw new BadRequestError('newPassword must be at least 8 characters long.');
+      }
+
+      const passwordHash = await hashPassword(newPassword);
+      await this.adminAccountRepository.rotatePassword(id, passwordHash);
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'admin.password_rotated',
+          target: `admin:${id}`,
+          metadata: { id },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, { message: 'Password rotated successfully.' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listFeatureFlags = async (req, res, next) => {
+    try {
+      if (!this.featureFlagRepository) throw new NotFoundError('Feature flag management is not configured.');
+      const flags = await this.featureFlagRepository.list({
+        platform: req.query?.platform,
+        enabled: req.query?.enabled !== undefined ? req.query.enabled === 'true' : undefined,
+      });
+      return sendSuccess(res, { data: { items: flags, total: flags.length } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateFeatureFlag = async (req, res, next) => {
+    try {
+      const { key } = req.params;
+      const actor = req.user?.email || 'Super Admin';
+      if (!this.featureFlagRepository) throw new NotFoundError('Feature flag management is not configured.');
+      const { enabled, rolloutPercentage, effectiveDate, platform, description, title, group } = req.body || {};
+
+      const updated = await this.featureFlagRepository.setFlag(key, {
+        enabled,
+        rolloutPercentage,
+        effectiveDate,
+        platform,
+        description,
+        title,
+        group,
+        updatedBy: actor,
+      });
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'feature_flag.updated',
+          target: `flag:${key}`,
+          metadata: { key, enabled: updated.enabled, rolloutPercentage: updated.rolloutPercentage },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, { message: 'Feature flag updated successfully.', data: updated });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listReleasePolicies = async (req, res, next) => {
+    try {
+      if (!this.appReleasePolicyRepository) throw new NotFoundError('Release policy management is not configured.');
+      const policies = await this.appReleasePolicyRepository.list();
+      return sendSuccess(res, { data: { items: policies } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateReleasePolicy = async (req, res, next) => {
+    try {
+      const { platform } = req.params;
+      const actor = req.user?.email || 'Super Admin';
+      if (!this.appReleasePolicyRepository) throw new NotFoundError('Release policy management is not configured.');
+      const { minVersion, latestVersion, forceUpdate, maintenanceMode, maintenanceMessage, releaseNotes, downloadUrl } = req.body || {};
+
+      const updated = await this.appReleasePolicyRepository.setPolicy(platform, {
+        minVersion,
+        latestVersion,
+        forceUpdate,
+        maintenanceMode,
+        maintenanceMessage,
+        releaseNotes,
+        downloadUrl,
+        updatedBy: actor,
+      });
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'release_policy.updated',
+          target: `policy:${platform}`,
+          metadata: { platform, minVersion, latestVersion, forceUpdate, maintenanceMode },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, { message: 'Release policy updated successfully.', data: updated });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getAppConfig = async (req, res, next) => {
+    try {
+      const platform = String(req.headers?.['x-platform'] || req.query?.platform || 'android').toLowerCase();
+      const clientVersion = String(req.headers?.['x-app-version'] || req.query?.version || '1.0.0');
+
+      let versionCheck = { updateRequired: false, updateAvailable: false, maintenanceMode: false };
+      if (this.appReleasePolicyRepository) {
+        versionCheck = await this.appReleasePolicyRepository.checkClientVersion({ platform, clientVersion });
+      }
+
+      let flags = {};
+      if (this.featureFlagRepository) {
+        const flagList = await this.featureFlagRepository.list({ platform });
+        flags = Object.fromEntries(flagList.map((f) => [f.key, f.enabled]));
+      }
+
+      return sendSuccess(res, {
+        data: {
+          platform,
+          version: clientVersion,
+          versionCheck,
+          features: flags,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listAuditLogs = async (req, res, next) => {
+    try {
+      const { page, limit, action, actorId, target, query, startDate, endDate } = req.query || {};
+      const result = await this.auditEventRepository.list({
+        page,
+        limit,
+        action,
+        actorId,
+        target,
+        query,
+        startDate,
+        endDate,
+      });
+      return sendSuccess(res, { data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  exportAuditLogs = async (req, res, next) => {
+    try {
+      const actor = req.user?.email || 'Super Admin';
+      const { action, actorId, target, query, startDate, endDate, format = 'json' } = req.query || {};
+
+      const exported = await this.auditEventRepository.exportLogs({
+        action,
+        actorId,
+        target,
+        query,
+        startDate,
+        endDate,
+        format,
+      });
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'audit.exported',
+          target: 'audit_logs',
+          metadata: { count: exported.count, format },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, { message: 'Audit logs exported successfully.', data: exported });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  exportPatients = async (req, res, next) => {
+    try {
+      const actor = req.user?.email || 'Super Admin';
+      const users = await this.userRepository.list({ limit: 1000 });
+      const items = (users?.items || []).map((u) => ({
+        id: u.id,
+        patientCode: u.patient_code,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        age: u.age,
+        gender: u.gender,
+        city: u.city,
+        occupation: u.occupation,
+        created_at: u.created_at,
+      }));
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'patients.exported',
+          target: 'patients',
+          metadata: { count: items.length },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, {
+        message: 'Patients exported successfully.',
+        data: { count: items.length, items, exportedAt: new Date().toISOString() },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  exportAppointments = async (req, res, next) => {
+    try {
+      const actor = req.user?.email || 'Super Admin';
+      const appts = await this.appointmentRepository.list({ limit: 1000 });
+      const rawList = Array.isArray(appts) ? appts : (appts?.items || []);
+      const items = rawList.map((a) => ({
+        id: a.id,
+        patientId: a.patient_id,
+        patientName: a.patient_name,
+        doctorName: a.doctor_name,
+        startsAt: a.starts_at,
+        timeSlot: a.time_slot,
+        serviceName: a.service_name,
+        status: a.status,
+        paymentStatus: a.payment_status,
+        consultationFee: a.consultation_fee,
+        created_at: a.created_at,
+      }));
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'appointments.exported',
+          target: 'appointments',
+          metadata: { count: items.length },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, {
+        message: 'Appointments exported successfully.',
+        data: { count: items.length, items, exportedAt: new Date().toISOString() },
+      });
     } catch (error) {
       next(error);
     }

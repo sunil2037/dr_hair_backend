@@ -10,6 +10,7 @@ import { errorHandler } from './shared/middlewares/error.middleware.js';
 import { NotFoundError } from './shared/errors/index.js';
 import { databaseStatus } from './shared/database/mongodb.js';
 import { sendError } from './shared/utils/response.js';
+import { requestIdMiddleware } from './shared/middlewares/requestId.middleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,6 +30,7 @@ export const createApp = () => {
   if (config.env === 'production') app.set('trust proxy', 1);
 
   // 1. Global Middlewares
+  app.use(requestIdMiddleware);
   app.use(
     cors({
       origin(origin, callback) {
@@ -97,6 +99,10 @@ export const createApp = () => {
       status: healthy ? 'ok' : 'unavailable',
       database: db,
       uptime: process.uptime(),
+      memory: {
+        rss_bytes: process.memoryUsage().rss,
+        heap_used_bytes: process.memoryUsage().heapUsed,
+      },
       timestamp: new Date().toISOString(),
     });
   });
@@ -194,6 +200,10 @@ export const createApp = () => {
   // Public clinic appointment closed dates / holidays
   app.get('/api/v1/appointments/closed-dates', container.controllers.appointmentController.listClosedDates);
 
+  // App Config & Release Policies (Feature flags & version check for mobile/web clients)
+  app.get('/api/v1/app/config', container.controllers.adminController.getAppConfig);
+  app.get('/api/v1/app/version', container.controllers.adminController.getAppConfig);
+
   // 4. Versioned RESTful API Routes (Modern Aliases)
   app.use('/api/v1/auth', container.routers.authRouter);
   app.use('/api/v1/admin-auth', container.routers.adminAuthRouter);
@@ -210,6 +220,10 @@ export const createApp = () => {
   app.use('/api/v1/cart', container.routers.cartRouter);
   app.use('/cart', container.routers.cartRouter);
   app.use('/api/v1/content', container.routers.contentRouter);
+  app.use('/api/v1/commerce', container.routers.commerceRouter);
+  app.use('/api/v1/patient/addresses', container.routers.patientAddressRouter);
+  app.use('/api/v1/patient/orders', container.routers.patientOrderRouter);
+  app.use('/api/v1/admin/orders', container.routers.adminOrderRouter);
   app.use('/api/v1/admin', container.routers.adminRouter);
   app.use('/api/v1/patient', container.routers.patientClinicalRouter);
 

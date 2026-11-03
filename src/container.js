@@ -23,6 +23,12 @@ import { AuditEventRepository } from './modules/admin/infrastructure/AuditEventR
 import { CampaignRepository } from './modules/notifications/infrastructure/CampaignRepository.js';
 import { CampaignSchedulerService } from './modules/notifications/application/CampaignSchedulerService.js';
 import { ContentRepository } from './modules/content/infrastructure/ContentRepository.js';
+import { AddressRepository } from './modules/commerce/infrastructure/AddressRepository.js';
+import { InventoryRepository } from './modules/commerce/infrastructure/InventoryRepository.js';
+import { OrderRepository } from './modules/commerce/infrastructure/OrderRepository.js';
+import { PaymentGatewayService } from './modules/commerce/infrastructure/PaymentGatewayService.js';
+import { FeatureFlagRepository } from './modules/admin/infrastructure/FeatureFlagRepository.js';
+import { AppReleasePolicyRepository } from './modules/admin/infrastructure/AppReleasePolicyRepository.js';
 
 // Use Cases
 import { SendOtpUseCase } from './modules/auth/application/SendOtpUseCase.js';
@@ -51,6 +57,11 @@ import { ClearCartUseCase } from './modules/cart/application/ClearCartUseCase.js
 import { ApplyCouponUseCase } from './modules/cart/application/ApplyCouponUseCase.js';
 import { AdminAuthUseCase } from './modules/admin/application/AdminAuthUseCase.js';
 import { CreateAdminAccountUseCase } from './modules/admin/application/CreateAdminAccountUseCase.js';
+import { CheckoutUseCase } from './modules/commerce/application/CheckoutUseCase.js';
+import { VerifyPaymentUseCase } from './modules/commerce/application/VerifyPaymentUseCase.js';
+import { CancelOrderUseCase } from './modules/commerce/application/CancelOrderUseCase.js';
+import { RefundOrderUseCase } from './modules/commerce/application/RefundOrderUseCase.js';
+import { UpdateFulfillmentUseCase } from './modules/commerce/application/UpdateFulfillmentUseCase.js';
 
 // Controllers
 import { AuthController } from './modules/auth/presentation/auth.controller.js';
@@ -67,6 +78,7 @@ import { AdminAuthController } from './modules/admin/presentation/admin-auth.con
 import { PatientClinicalController } from './modules/patient/presentation/patient-clinical.controller.js';
 import { AppointmentController } from './modules/appointments/presentation/appointment.controller.js';
 import { ContentController } from './modules/content/presentation/content.controller.js';
+import { CommerceController } from './modules/commerce/presentation/commerce.controller.js';
 
 // Routers
 import { createAuthRouter } from './modules/auth/presentation/auth.routes.js';
@@ -84,6 +96,12 @@ import { createAdminRouter } from './modules/admin/presentation/admin.routes.js'
 import { createAdminAuthRouter } from './modules/admin/presentation/admin-auth.routes.js';
 import { createPatientClinicalRouter } from './modules/patient/presentation/patient-clinical.routes.js';
 import { createContentRouter } from './modules/content/presentation/content.routes.js';
+import {
+  createCommerceRouter,
+  createPatientAddressRouter,
+  createPatientOrderRouter,
+  createAdminOrderRouter,
+} from './modules/commerce/presentation/commerce.routes.js';
 
 /**
  * Dependency Injection Container
@@ -115,6 +133,12 @@ export const createContainer = (overrides = {}) => {
   const auditEventRepository = overrides.auditEventRepository || new AuditEventRepository();
   const campaignRepository = overrides.campaignRepository || new CampaignRepository();
   const contentRepository = overrides.contentRepository || new ContentRepository();
+  const addressRepository = overrides.addressRepository || new AddressRepository();
+  const inventoryRepository = overrides.inventoryRepository || new InventoryRepository();
+  const orderRepository = overrides.orderRepository || new OrderRepository();
+  const paymentGatewayService = overrides.paymentGatewayService || new PaymentGatewayService();
+  const featureFlagRepository = overrides.featureFlagRepository || new FeatureFlagRepository();
+  const appReleasePolicyRepository = overrides.appReleasePolicyRepository || new AppReleasePolicyRepository();
   const campaignSchedulerService =
     overrides.campaignSchedulerService ||
     new CampaignSchedulerService({
@@ -197,6 +221,46 @@ export const createContainer = (overrides = {}) => {
   const removeCartItemUseCase = new RemoveCartItemUseCase({ cartRepository });
   const clearCartUseCase = new ClearCartUseCase({ cartRepository });
   const applyCouponUseCase = new ApplyCouponUseCase({ cartRepository });
+
+  const checkoutUseCase =
+    overrides.checkoutUseCase ||
+    new CheckoutUseCase({
+      orderRepository,
+      productRepository,
+      addressRepository,
+      inventoryRepository,
+      cartRepository,
+      paymentGatewayService,
+      auditEventRepository,
+    });
+  const verifyPaymentUseCase =
+    overrides.verifyPaymentUseCase ||
+    new VerifyPaymentUseCase({
+      orderRepository,
+      paymentGatewayService,
+      auditEventRepository,
+    });
+  const cancelOrderUseCase =
+    overrides.cancelOrderUseCase ||
+    new CancelOrderUseCase({
+      orderRepository,
+      inventoryRepository,
+      auditEventRepository,
+    });
+  const refundOrderUseCase =
+    overrides.refundOrderUseCase ||
+    new RefundOrderUseCase({
+      orderRepository,
+      inventoryRepository,
+      paymentGatewayService,
+      auditEventRepository,
+    });
+  const updateFulfillmentUseCase =
+    overrides.updateFulfillmentUseCase ||
+    new UpdateFulfillmentUseCase({
+      orderRepository,
+      auditEventRepository,
+    });
 
   // 3. Presentation Layer (Controllers)
   const authController = new AuthController({
@@ -290,7 +354,25 @@ export const createContainer = (overrides = {}) => {
     patientActivityRepository,
     progressCheckInRepository,
     auditEventRepository,
+    featureFlagRepository,
+    appReleasePolicyRepository,
+    productRepository,
+    sessionRepository,
   });
+
+  const commerceController =
+    overrides.commerceController ||
+    new CommerceController({
+      addressRepository,
+      inventoryRepository,
+      orderRepository,
+      checkoutUseCase,
+      verifyPaymentUseCase,
+      cancelOrderUseCase,
+      refundOrderUseCase,
+      updateFulfillmentUseCase,
+      paymentGatewayService,
+    });
 
   // 4. Routes
   const authRouter = createAuthRouter({ authController });
@@ -304,12 +386,17 @@ export const createContainer = (overrides = {}) => {
   const cartRouter = createCartRouter({ cartController });
   const mediaRouter = createMediaRouter({ mediaController });
   const contentRouter = createContentRouter({ contentController });
+  const commerceRouter = createCommerceRouter({ commerceController });
+  const patientAddressRouter = createPatientAddressRouter({ commerceController });
+  const patientOrderRouter = createPatientOrderRouter({ commerceController });
+  const adminOrderRouter = createAdminOrderRouter({ commerceController });
   const adminRouter = createAdminRouter({
     adminController,
     notificationController,
     videoController,
     appointmentController,
     contentController,
+    commerceController,
   });
   const adminAuthRouter = createAdminAuthRouter({ adminAuthController });
   const patientClinicalRouter = createPatientClinicalRouter({ patientClinicalController, appointmentController });
@@ -336,12 +423,18 @@ export const createContainer = (overrides = {}) => {
       campaignRepository,
       contentRepository,
       auditEventRepository,
+      addressRepository,
+      inventoryRepository,
+      orderRepository,
+      featureFlagRepository,
+      appReleasePolicyRepository,
     },
     services: {
       smsService,
       imageStorage,
       patientArchiveService,
       campaignSchedulerService,
+      paymentGatewayService,
     },
     useCases: {
       sendOtpUseCase,
@@ -370,6 +463,11 @@ export const createContainer = (overrides = {}) => {
       applyCouponUseCase,
       adminAuthUseCase,
       createAdminAccountUseCase,
+      checkoutUseCase,
+      verifyPaymentUseCase,
+      cancelOrderUseCase,
+      refundOrderUseCase,
+      updateFulfillmentUseCase,
     },
     controllers: {
       authController,
@@ -387,6 +485,7 @@ export const createContainer = (overrides = {}) => {
       appointmentController,
       patientClinicalController,
       contentController,
+      commerceController,
     },
     routers: {
       authRouter,
@@ -405,6 +504,10 @@ export const createContainer = (overrides = {}) => {
       adminAuthRouter,
       patientClinicalRouter,
       contentRouter,
+      commerceRouter,
+      patientAddressRouter,
+      patientOrderRouter,
+      adminOrderRouter,
     },
   };
 };

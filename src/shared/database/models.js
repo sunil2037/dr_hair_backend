@@ -422,6 +422,148 @@ const cartSchema = new Schema(
   { collection: 'carts', strict: false, versionKey: false },
 );
 
+const addressSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    name: { type: String, required: true, trim: true },
+    phone: { type: String, required: true, trim: true },
+    house_number: { type: String, required: true, trim: true },
+    street: { type: String, required: true, trim: true },
+    city: { type: String, required: true, trim: true },
+    state: { type: String, required: true, trim: true },
+    pincode: { type: String, required: true, trim: true },
+    tag: { type: String, enum: ['Home', 'Work', 'Other'], default: 'Home' },
+    is_default: { type: Boolean, default: false },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'addresses', strict: false, versionKey: false },
+);
+addressSchema.index({ userId: 1, is_default: 1 });
+
+const inventoryLedgerSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    product_id: { type: String, required: true, index: true },
+    quantity: { type: Number, required: true },
+    balance_after: { type: Number, required: true },
+    reference_type: {
+      type: String,
+      enum: ['RESTOCK', 'RESERVATION', 'RELEASE', 'FULFILLMENT', 'RETURN_RESTOCK', 'ADJUSTMENT'],
+      required: true,
+      index: true,
+    },
+    reference_id: { type: String, default: '', index: true },
+    notes: { type: String, default: '' },
+    created_by: { type: String, default: 'system' },
+    created_at: { type: Date, default: Date.now },
+  },
+  { collection: 'inventory_ledgers', strict: false, versionKey: false },
+);
+inventoryLedgerSchema.index({ product_id: 1, created_at: -1 });
+
+const orderItemSnapshotSchema = new Schema(
+  {
+    product_id: { type: String, required: true },
+    title: { type: String, required: true },
+    subtitle: { type: String, default: '' },
+    price: { type: Number, required: true },
+    mrp: { type: Number, default: 0 },
+    quantity: { type: Number, required: true, min: 1 },
+    plan: { type: String, default: 'Standard' },
+    image_url: { type: String, default: '' },
+    subtotal: { type: Number, required: true },
+  },
+  { _id: false },
+);
+
+const orderAddressSnapshotSchema = new Schema(
+  {
+    id: { type: String, default: '' },
+    name: { type: String, required: true },
+    phone: { type: String, required: true },
+    house_number: { type: String, required: true },
+    street: { type: String, required: true },
+    city: { type: String, required: true },
+    state: { type: String, required: true },
+    pincode: { type: String, required: true },
+    tag: { type: String, default: 'Home' },
+  },
+  { _id: false },
+);
+
+const orderSchema = new Schema(
+  {
+    order_id: { type: String, required: true, unique: true, index: true },
+    idempotency_key: { type: String, index: true, sparse: true },
+    user_id: { type: String, required: true, index: true },
+    customer: {
+      name: { type: String, default: '' },
+      email: { type: String, default: '' },
+      phone: { type: String, default: '' },
+    },
+    items: { type: [orderItemSnapshotSchema], required: true },
+    shipping_address: { type: orderAddressSnapshotSchema, required: true },
+    pricing: {
+      subtotal: { type: Number, required: true },
+      discount: { type: Number, default: 0 },
+      coupon_code: { type: String, default: null },
+      delivery_fee: { type: Number, default: 0 },
+      tax: { type: Number, default: 0 },
+      total: { type: Number, required: true },
+    },
+    payment: {
+      gateway: { type: String, enum: ['razorpay', 'cod', 'pay_at_clinic'], default: 'razorpay' },
+      payment_status: {
+        type: String,
+        enum: ['Pending', 'Paid', 'Failed', 'Refunded', 'Partially refunded'],
+        default: 'Pending',
+        index: true,
+      },
+      payment_intent_id: { type: String, default: null, index: true },
+      transaction_id: { type: String, default: null },
+      payment_signature: { type: String, default: null },
+      paid_at: { type: Date, default: null },
+      refund_id: { type: String, default: null },
+      refund_amount: { type: Number, default: 0 },
+      refunded_at: { type: Date, default: null },
+    },
+    fulfillment: {
+      status: {
+        type: String,
+        enum: ['New', 'Preparing', 'Shipped', 'Delivered', 'Cancelled', 'Return requested', 'Refunded'],
+        default: 'New',
+        index: true,
+      },
+      courier: { type: String, default: '' },
+      tracking_number: { type: String, default: '' },
+      shipped_at: { type: Date, default: null },
+      delivered_at: { type: Date, default: null },
+      cancellation_reason: { type: String, default: null },
+      cancelled_at: { type: Date, default: null },
+      return_reason: { type: String, default: null },
+      returned_at: { type: Date, default: null },
+    },
+    timeline: {
+      type: [
+        {
+          label: { type: String, required: true },
+          timestamp: { type: Date, default: Date.now },
+          done: { type: Boolean, default: true },
+        },
+      ],
+      default: [],
+    },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'orders', strict: false, versionKey: false },
+);
+orderSchema.index({ user_id: 1, created_at: -1 });
+orderSchema.index({ 'fulfillment.status': 1, created_at: -1 });
+orderSchema.index({ 'payment.payment_status': 1, created_at: -1 });
+
 const sessionSchema = new Schema(
   {
     sessionId: { type: String, required: true, unique: true, index: true },
@@ -544,6 +686,41 @@ const contentItemSchema = new Schema(
 );
 contentItemSchema.index({ type: 1, placement: 1, status: 1, sortOrder: 1 });
 
+const featureFlagSchema = new Schema(
+  {
+    key: { type: String, required: true, unique: true, index: true, trim: true },
+    title: { type: String, required: true, trim: true },
+    description: { type: String, default: '' },
+    group: { type: String, default: 'Core Experience' },
+    enabled: { type: Boolean, default: true, index: true },
+    platform: { type: String, enum: ['all', 'app', 'panel', 'ios', 'android', 'web'], default: 'all' },
+    rolloutPercentage: { type: Number, default: 100, min: 0, max: 100 },
+    effectiveDate: { type: Date, default: null },
+    metadata: { type: Schema.Types.Mixed, default: {} },
+    updatedBy: { type: String, default: 'Super Admin' },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'feature_flags', versionKey: false },
+);
+
+const appReleasePolicySchema = new Schema(
+  {
+    platform: { type: String, required: true, unique: true, index: true, enum: ['ios', 'android', 'all'] },
+    minVersion: { type: String, required: true, default: '1.0.0' },
+    latestVersion: { type: String, required: true, default: '1.0.0' },
+    forceUpdate: { type: Boolean, default: false },
+    maintenanceMode: { type: Boolean, default: false },
+    maintenanceMessage: { type: String, default: 'Dr. Hair is undergoing routine clinical maintenance.' },
+    releaseNotes: { type: String, default: '' },
+    downloadUrl: { type: String, default: '' },
+    updatedBy: { type: String, default: 'Super Admin' },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'app_release_policies', versionKey: false },
+);
+
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);
 export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.model('DrHairAdminAccount', adminAccountSchema);
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
@@ -563,9 +740,14 @@ export const ContentItemModel = mongoose.models.DrHairContentItem || mongoose.mo
 export const VideoModel = mongoose.models.DrHairVideo || mongoose.model('DrHairVideo', videoSchema);
 export const ProductModel = mongoose.models.DrHairProduct || mongoose.model('DrHairProduct', productSchema);
 export const CartModel = mongoose.models.DrHairCart || mongoose.model('DrHairCart', cartSchema);
+export const AddressModel = mongoose.models.DrHairAddress || mongoose.model('DrHairAddress', addressSchema);
+export const InventoryLedgerModel = mongoose.models.DrHairInventoryLedger || mongoose.model('DrHairInventoryLedger', inventoryLedgerSchema);
+export const OrderModel = mongoose.models.DrHairOrder || mongoose.model('DrHairOrder', orderSchema);
 export const SessionModel = mongoose.models.DrHairSession || mongoose.model('DrHairSession', sessionSchema);
 export const AuditEventModel = mongoose.models.DrHairAuditEvent || mongoose.model('DrHairAuditEvent', auditEventSchema);
 export const RateLimitCounterModel = mongoose.models.DrHairRateLimitCounter || mongoose.model('DrHairRateLimitCounter', rateLimitCounterSchema);
+export const FeatureFlagModel = mongoose.models.DrHairFeatureFlag || mongoose.model('DrHairFeatureFlag', featureFlagSchema);
+export const AppReleasePolicyModel = mongoose.models.DrHairAppReleasePolicy || mongoose.model('DrHairAppReleasePolicy', appReleasePolicySchema);
 const CounterModel = mongoose.models.DrHairCounter || mongoose.model('DrHairCounter', counterSchema);
 
 export const nextUserId = async () => {

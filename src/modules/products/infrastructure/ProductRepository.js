@@ -3,6 +3,10 @@ import { isMongoConnected } from '../../../shared/database/mongodb.js';
 import { ProductModel } from '../../../shared/database/models.js';
 import { store } from '../../../shared/database/store.js';
 
+function escapeRegex(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export class ProductRepository extends IProductRepository {
   async list({
     category,
@@ -20,16 +24,17 @@ export class ProductRepository extends IProductRepository {
     if (isMongoConnected()) {
       const andClauses = [];
       if (status && status !== 'all') {
-        andClauses.push({ status: new RegExp(`^${status}$`, 'i') });
+        andClauses.push({ status: new RegExp(`^${escapeRegex(status)}$`, 'i') });
       }
       if (category && category !== 'All' && category !== 'all') {
-        andClauses.push({ category: new RegExp(category, 'i') });
+        andClauses.push({ category: new RegExp(escapeRegex(category), 'i') });
       }
       if (rootCause && rootCause !== 'All' && rootCause !== 'all') {
+        const safeRootCause = escapeRegex(rootCause);
         andClauses.push({
           $or: [
-            { root_cause: new RegExp(`^${rootCause}$`, 'i') },
-            { root_causes: new RegExp(`^${rootCause}$`, 'i') },
+            { root_cause: new RegExp(`^${safeRootCause}$`, 'i') },
+            { root_causes: new RegExp(`^${safeRootCause}$`, 'i') },
           ],
         });
       }
@@ -37,7 +42,7 @@ export class ProductRepository extends IProductRepository {
         andClauses.push({ in_stock: Boolean(inStock) });
       }
       if (search && search.trim()) {
-        const regex = new RegExp(search.trim(), 'i');
+        const regex = new RegExp(escapeRegex(search.trim()), 'i');
         andClauses.push({
           $or: [
             { name: regex },
@@ -125,6 +130,10 @@ export class ProductRepository extends IProductRepository {
 
     if (!Array.isArray(store.products)) store.products = [];
     return store.products.find((p) => String(p.id) === cleanId || String(p.sku) === cleanId) || null;
+  }
+
+  async getById(id) {
+    return this.findById(id);
   }
 
   async create(productData) {

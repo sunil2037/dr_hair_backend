@@ -28,15 +28,6 @@ export class VerifyOtpUseCase {
       .digest('hex');
 
     let verification = await this.otpRepository.verifyAndConsume(cleanLogin, otpHash, 5);
-    // Allow test OTP verification ONLY in local development and when explicitly configured.
-    // In production or outside local dev, config.isDev is false and test codes are never valid.
-    if (config.isDev && config.otp.defaultOtp && verification.status !== 'valid' && cleanOtp === config.otp.defaultOtp) {
-      const activeOtp = await this.otpRepository.findByLogin(cleanLogin);
-      if (activeOtp && activeOtp.expiresAt > new Date()) {
-        await this.otpRepository.delete(cleanLogin);
-        verification = { status: 'valid' };
-      }
-    }
 
     if (verification.status === 'locked') {
       throw new UnauthorizedError('Too many incorrect OTP attempts. Request a new code.');
