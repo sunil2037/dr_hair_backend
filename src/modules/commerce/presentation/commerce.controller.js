@@ -190,8 +190,9 @@ export class CommerceController {
       if (!userId) throw new UnauthorizedError('Authentication required');
       const page = parseInt(req.query.page, 10) || 1;
       const limit = parseInt(req.query.limit, 10) || 20;
+      const status = req.query.status ? String(req.query.status).trim() : null;
 
-      const result = await this.orderRepository.listByUserId(userId, { page, limit });
+      const result = await this.orderRepository.listByUserId(userId, { page, limit, status });
       return sendSuccess(res, {
         items: result.items.map((o) => o.toJSON()),
         total: result.total,

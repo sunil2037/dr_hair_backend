@@ -62,7 +62,7 @@ export class OrderRepository extends IOrderRepository {
     return new Order(found);
   }
 
-  async listByUserId(userId, { page = 1, limit = 20 } = {}) {
+  async listByUserId(userId, { page = 1, limit = 20, status } = {}) {
     const cleanUserId = String(userId).trim();
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -70,6 +70,18 @@ export class OrderRepository extends IOrderRepository {
 
     if (isMongoConnected()) {
       const query = { user_id: cleanUserId };
+      if (status && status !== 'All' && status !== 'all') {
+        const lower = status.toLowerCase();
+        if (lower === 'pending') {
+          query['fulfillment.status'] = { $in: ['New', 'Preparing'] };
+        } else if (lower === 'confirmed') {
+          query['fulfillment.status'] = { $in: ['Shipped', 'Delivered'] };
+        } else if (lower === 'cancelled') {
+          query['fulfillment.status'] = { $in: ['Cancelled', 'Refunded', 'Return requested'] };
+        } else {
+          query['fulfillment.status'] = status;
+        }
+      }
       const [records, total] = await Promise.all([
         OrderModel.find(query).sort({ created_at: -1 }).skip(skip).limit(safeLimit).lean(),
         OrderModel.countDocuments(query),
@@ -84,7 +96,17 @@ export class OrderRepository extends IOrderRepository {
     }
 
     if (!Array.isArray(store.orders)) store.orders = [];
-    const filtered = store.orders.filter((o) => String(o.user_id) === cleanUserId);
+    let filtered = store.orders.filter((o) => String(o.user_id) === cleanUserId);
+    if (status && status !== 'All' && status !== 'all') {
+      const lower = status.toLowerCase();
+      filtered = filtered.filter((o) => {
+        const st = (o.fulfillment?.status || o.status || 'New').toString().toLowerCase();
+        if (lower === 'pending') return st === 'new' || st === 'preparing';
+        if (lower === 'confirmed') return st === 'shipped' || st === 'delivered';
+        if (lower === 'cancelled') return st === 'cancelled' || st === 'refunded' || st.includes('return');
+        return st === lower;
+      });
+    }
     filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     const total = filtered.length;
