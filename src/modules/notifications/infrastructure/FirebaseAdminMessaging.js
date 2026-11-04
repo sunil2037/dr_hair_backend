@@ -57,6 +57,27 @@ export const sendPushNotification = async ({
   return messaging.send({
     token,
     notification: { title, body },
+    android: {
+      priority: 'high',
+      notification: {
+        channelId: 'high_importance_channel',
+        priority: 'high',
+        defaultSound: true,
+        defaultVibrateTimings: true,
+      },
+    },
+    apns: {
+      headers: {
+        'apns-priority': '10',
+      },
+      payload: {
+        aps: {
+          alert: { title, body },
+          sound: 'default',
+          badge: 1,
+        },
+      },
+    },
     ...(Object.keys(normalizedData).length > 0 ? { data: normalizedData } : {}),
   });
 };
