@@ -22,6 +22,7 @@ tags:
   - name: Admin
   - name: Media
   - name: Patient app
+  - name: Support
 paths:
   /api/v1/media:
     delete:
@@ -238,6 +239,203 @@ paths:
                     properties:
                       data: { $ref: '#/components/schemas/UserProfile' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Sign in with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                deviceMetadata: { type: object }
+              required: [email, password]
+      responses:
+        '200':
+          description: User signed in successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      token: { type: string }
+                      refresh_token: { type: string }
+                      session_id: { type: string }
+                      data: { $ref: '#/components/schemas/UserProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/auth/send-signup-otp:
+    post:
+      tags: [Authentication]
+      summary: Request mobile verification OTP during account creation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "9876543210" }
+              required: [phone]
+      responses:
+        '200':
+          description: Signup OTP sent successfully
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { description: Phone number is already registered }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a new patient account with email, password, and verified phone number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+                phone: { type: string }
+                otp: { type: string, minLength: 6, maxLength: 6 }
+                deviceMetadata: { type: object }
+              required: [name, email, password, phone, otp]
+      responses:
+        '201':
+          description: Account created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      token: { type: string }
+                      refresh_token: { type: string }
+                      session_id: { type: string }
+                      data: { $ref: '#/components/schemas/UserProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { description: Email or phone already registered }
+
+  /api/v1/auth/social-login:
+    post:
+      tags: [Authentication]
+      summary: Sign in or register with Google or Apple
+      description: Returns active session tokens if already linked/registered with a verified phone number, or requires_phone_verification with a temporary registration token if this is a first-time signup.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider: { type: string, enum: [google, apple] }
+                providerId: { type: string }
+                email: { type: string }
+                name: { type: string }
+                deviceMetadata: { type: object }
+              required: [provider, providerId]
+      responses:
+        '200':
+          description: Social authentication response
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      requires_phone_verification: { type: boolean }
+                      temp_token: { type: string }
+                      token: { type: string }
+                      refresh_token: { type: string }
+                      data: { $ref: '#/components/schemas/UserProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/auth/verify-social-signup:
+    post:
+      tags: [Authentication]
+      summary: Complete first-time social signup by verifying mobile number with OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tempToken: { type: string }
+                phone: { type: string }
+                otp: { type: string }
+                deviceMetadata: { type: object }
+              required: [tempToken, phone, otp]
+      responses:
+        '201':
+          description: Account created and social identity linked
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      token: { type: string }
+                      refresh_token: { type: string }
+                      session_id: { type: string }
+                      data: { $ref: '#/components/schemas/UserProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Phone number already associated with another account }
+
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request password reset OTP to verified mobile or email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                login: { type: string }
+              required: [login]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Reset account password using verified OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                login: { type: string }
+                otp: { type: string }
+                newPassword: { type: string, minLength: 6 }
+              required: [login, otp, newPassword]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/admin-auth/login:
     post:
@@ -555,6 +753,39 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/patient/diet-plan:
+    get:
+      tags: [Patient app]
+      summary: Get the authenticated patient's clinical diet plan
+      description: Returns doctor-curated nutrition and meal suggestions associated with the patient's active treatment.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Patient diet plan
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          treatment_name: { type: string }
+                          doctor_name: { type: string }
+                          diet_meals:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                type: { type: string, example: "Breakfast" }
+                                name: { type: string, example: "Sprouted Moong & Boiled Eggs" }
+                                nutrients: { type: string, example: "Protein 18g, Biotin 25mcg" }
+                                benefit: { type: string, example: "Strengthens hair cortex and keratin synthesis." }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /api/v1/patient/progress-checkins:
     get:
@@ -2049,6 +2280,40 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/v1/admin/users/{userId}/diet-plan:
+    post:
+      tags: [Admin]
+      summary: Update or assign diet meals for a patient
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                diet_meals:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string }
+                      name: { type: string }
+                      nutrients: { type: string }
+                      benefit: { type: string }
+                    required: [type, name]
+              required: [diet_meals]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /api/v1/admin/reviews:
     get:
       tags: [Admin]
@@ -2586,6 +2851,78 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/VideoStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/support/inquiries:
+    post:
+      tags: [Support]
+      summary: Submit a patient inquiry or consultation request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 2 }
+                phone: { type: string, minLength: 8 }
+                email: { type: string, format: email, nullable: true }
+                message: { type: string, minLength: 5 }
+              required: [name, phone, message]
+      responses:
+        '201':
+          description: Inquiry submitted successfully
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/admin/support/inquiries:
+    get:
+      tags: [Admin, Support]
+      summary: List patient support inquiries
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, contacted, resolved] }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/support/inquiries/{id}:
+    patch:
+      tags: [Admin, Support]
+      summary: Update support inquiry status or admin notes
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [pending, contacted, resolved] }
+                admin_notes: { type: string }
+              required: [status]
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/BadRequest' }

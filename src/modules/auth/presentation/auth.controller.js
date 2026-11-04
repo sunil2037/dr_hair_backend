@@ -3,14 +3,235 @@ import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index
 import { TokenService } from '../../../shared/utils/token.service.js';
 
 export class AuthController {
-  constructor({ sendOtpUseCase, verifyOtpUseCase, userRepository, hairTestRepository, sessionRepository, deviceTokenRepository }) {
+  constructor({
+    sendOtpUseCase,
+    verifyOtpUseCase,
+    loginWithPasswordUseCase,
+    sendSignupOtpUseCase,
+    registerWithPasswordUseCase,
+    socialAuthUseCase,
+    verifySocialSignupUseCase,
+    forgotPasswordUseCase,
+    resetPasswordUseCase,
+    userRepository,
+    hairTestRepository,
+    sessionRepository,
+    deviceTokenRepository,
+  }) {
     this.sendOtpUseCase = sendOtpUseCase;
     this.verifyOtpUseCase = verifyOtpUseCase;
+    this.loginWithPasswordUseCase = loginWithPasswordUseCase;
+    this.sendSignupOtpUseCase = sendSignupOtpUseCase;
+    this.registerWithPasswordUseCase = registerWithPasswordUseCase;
+    this.socialAuthUseCase = socialAuthUseCase;
+    this.verifySocialSignupUseCase = verifySocialSignupUseCase;
+    this.forgotPasswordUseCase = forgotPasswordUseCase;
+    this.resetPasswordUseCase = resetPasswordUseCase;
     this.userRepository = userRepository;
     this.hairTestRepository = hairTestRepository;
     this.sessionRepository = sessionRepository;
     this.deviceTokenRepository = deviceTokenRepository;
   }
+
+  async _resolveAssessmentState(user) {
+    let hasCompletedAssessment = false;
+    let nextStep = 'COMPLETE_PROFILE';
+
+    if (user?.id && this.hairTestRepository) {
+      const tests = await this.hairTestRepository.findByUserId(user.id);
+      hasCompletedAssessment = tests && tests.length > 0;
+      nextStep = hasCompletedAssessment ? 'HOME' : 'ASSESSMENT';
+    } else if (user) {
+      nextStep = 'ASSESSMENT';
+    }
+    return { hasCompletedAssessment, nextStep };
+  }
+
+  login = async (req, res, next) => {
+    try {
+      const { email, password } = req.body || {};
+      const deviceMetadata = {
+        platform: req.headers?.['x-platform'] || req.body?.platform || 'app',
+        userAgent: req.headers?.['user-agent'] || '',
+        ip: req.ip || '',
+      };
+      const result = await this.loginWithPasswordUseCase.execute({ email, password, deviceMetadata });
+      const { hasCompletedAssessment, nextStep } = await this._resolveAssessmentState(result.user);
+
+      return sendSuccess(res, {
+        message: result.message,
+        data: {
+          token: result.token,
+          refresh_token: result.refreshToken,
+          session_id: result.sessionId,
+          is_registered: true,
+          has_completed_assessment: hasCompletedAssessment,
+          next_step: nextStep,
+          user: result.user,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  sendSignupOtp = async (req, res, next) => {
+    try {
+      const { phone } = req.body || {};
+      const result = await this.sendSignupOtpUseCase.execute({ phone });
+      return sendSuccess(res, { message: result.message });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  register = async (req, res, next) => {
+    try {
+      const { name, email, password, phone, otp } = req.body || {};
+      const deviceMetadata = {
+        platform: req.headers?.['x-platform'] || req.body?.platform || 'app',
+        userAgent: req.headers?.['user-agent'] || '',
+        ip: req.ip || '',
+      };
+      const result = await this.registerWithPasswordUseCase.execute({
+        name,
+        email,
+        password,
+        phone,
+        otp,
+        deviceMetadata,
+      });
+
+      return sendSuccess(res, {
+        statusCode: 201,
+        message: result.message,
+        data: {
+          token: result.token,
+          refresh_token: result.refreshToken,
+          session_id: result.sessionId,
+          is_registered: true,
+          has_completed_assessment: false,
+          next_step: 'ASSESSMENT',
+          user: result.user,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  socialLogin = async (req, res, next) => {
+    try {
+      const { provider, email, name, provider_id, id_token } = req.body || {};
+      const providerId = provider_id || id_token;
+      const deviceMetadata = {
+        platform: req.headers?.['x-platform'] || req.body?.platform || 'app',
+        userAgent: req.headers?.['user-agent'] || '',
+        ip: req.ip || '',
+      };
+
+      const result = await this.socialAuthUseCase.execute({
+        provider,
+        email,
+        name,
+        providerId,
+        deviceMetadata,
+      });
+
+      if (result.requires_phone_verification) {
+        return sendSuccess(res, {
+          data: {
+            requires_phone_verification: true,
+            temp_token: result.temp_token,
+            email: result.email,
+            name: result.name,
+            provider: result.provider,
+          },
+        });
+      }
+
+      const { hasCompletedAssessment, nextStep } = await this._resolveAssessmentState(result.user);
+
+      return sendSuccess(res, {
+        data: {
+          requires_phone_verification: false,
+          token: result.token,
+          refresh_token: result.refreshToken,
+          session_id: result.sessionId,
+          is_registered: true,
+          has_completed_assessment: hasCompletedAssessment,
+          next_step: nextStep,
+          user: result.user,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  verifySocialSignup = async (req, res, next) => {
+    try {
+      const { temp_token, phone, otp } = req.body || {};
+      const deviceMetadata = {
+        platform: req.headers?.['x-platform'] || req.body?.platform || 'app',
+        userAgent: req.headers?.['user-agent'] || '',
+        ip: req.ip || '',
+      };
+
+      const result = await this.verifySocialSignupUseCase.execute({
+        tempToken: temp_token,
+        phone,
+        otp,
+        deviceMetadata,
+      });
+
+      return sendSuccess(res, {
+        statusCode: 201,
+        message: result.message,
+        data: {
+          token: result.token,
+          refresh_token: result.refreshToken,
+          session_id: result.sessionId,
+          is_registered: true,
+          has_completed_assessment: false,
+          next_step: 'ASSESSMENT',
+          user: result.user,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  forgotPassword = async (req, res, next) => {
+    try {
+      const { login, email, phone } = req.body || {};
+      const target = login || email || phone;
+      const result = await this.forgotPasswordUseCase.execute({ login: target });
+      return sendSuccess(res, {
+        message: result.message,
+        data: { destination: result.destination || null },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  resetPassword = async (req, res, next) => {
+    try {
+      const { login, email, phone, otp, new_password, password } = req.body || {};
+      const target = login || email || phone;
+      const newPass = new_password || password;
+      const result = await this.resetPasswordUseCase.execute({
+        login: target,
+        otp,
+        newPassword: newPass,
+      });
+      return sendSuccess(res, { message: result.message });
+    } catch (err) {
+      next(err);
+    }
+  };
 
   sendLoginOtp = async (req, res, next) => {
     try {

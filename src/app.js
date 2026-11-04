@@ -226,6 +226,8 @@ export const createApp = () => {
   app.use('/api/v1/admin/orders', container.routers.adminOrderRouter);
   app.use('/api/v1/admin', container.routers.adminRouter);
   app.use('/api/v1/patient', container.routers.patientClinicalRouter);
+  app.use('/api/v1/support', container.routers.supportRouter);
+  app.use('/support', container.routers.supportRouter);
 
   // 5. 404 Route Not Found Handler
   app.use((req, res, next) => {

@@ -10,6 +10,10 @@ const userSchema = new Schema(
     email: { type: String, trim: true, lowercase: true },
     phone: { type: String, trim: true },
     phoneNormalized: { type: String, trim: true, sparse: true, unique: true },
+    passwordHash: { type: String, default: null, select: false },
+    authProviders: { type: [String], default: ['password'] },
+    googleId: { type: String, trim: true, sparse: true },
+    appleId: { type: String, trim: true, sparse: true },
     age: { type: Number, default: null },
     gender: { type: String, default: null },
     city: { type: String, default: null },
@@ -29,6 +33,8 @@ const userSchema = new Schema(
 );
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
 userSchema.index({ patient_code: 1 }, { unique: true, sparse: true });
+userSchema.index({ googleId: 1 }, { unique: true, sparse: true });
+userSchema.index({ appleId: 1 }, { unique: true, sparse: true });
 userSchema.index({ role: 1, created_at: -1, id: -1 });
 
 const adminAccountSchema = new Schema(
@@ -726,9 +732,26 @@ const appReleasePolicySchema = new Schema(
   { collection: 'app_release_policies', versionKey: false },
 );
 
+const supportInquirySchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true, trim: true },
+    email: { type: String, trim: true, lowercase: true },
+    phone: { type: String, required: true, trim: true },
+    message: { type: String, required: true, trim: true },
+    user_id: { type: Number, default: null, index: true },
+    status: { type: String, enum: ['pending', 'contacted', 'resolved'], default: 'pending', index: true },
+    admin_notes: { type: String, default: null },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'support_inquiries', versionKey: false },
+);
+
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);
 export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.model('DrHairAdminAccount', adminAccountSchema);
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
+export const SupportInquiryModel = mongoose.models.DrHairSupportInquiry || mongoose.model('DrHairSupportInquiry', supportInquirySchema);
 export const HairTestModel = mongoose.models.DrHairHairTest || mongoose.model('DrHairHairTest', hairTestSchema);
 export const HairTestDraftModel = mongoose.models.DrHairHairTestDraft || mongoose.model('DrHairHairTestDraft', hairTestDraftSchema);
 export const TreatmentModel = mongoose.models.DrHairTreatment || mongoose.model('DrHairTreatment', treatmentSchema);

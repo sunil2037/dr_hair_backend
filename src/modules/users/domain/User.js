@@ -10,6 +10,10 @@ export class User {
     name,
     email,
     phone,
+    passwordHash = null,
+    authProviders = ['password'],
+    googleId = null,
+    appleId = null,
     age = null,
     gender = null,
     city = null,
@@ -30,6 +34,10 @@ export class User {
     this.name = name;
     this.email = email;
     this.phone = phone;
+    this.passwordHash = passwordHash;
+    this.authProviders = Array.isArray(authProviders) ? authProviders : [authProviders || 'password'];
+    this.googleId = googleId;
+    this.appleId = appleId;
     this.age = age ? parseInt(age, 10) : null;
     this.gender = gender;
     this.city = city;

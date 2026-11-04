@@ -29,10 +29,18 @@ import { OrderRepository } from './modules/commerce/infrastructure/OrderReposito
 import { PaymentGatewayService } from './modules/commerce/infrastructure/PaymentGatewayService.js';
 import { FeatureFlagRepository } from './modules/admin/infrastructure/FeatureFlagRepository.js';
 import { AppReleasePolicyRepository } from './modules/admin/infrastructure/AppReleasePolicyRepository.js';
+import { SupportInquiryRepository } from './modules/support/infrastructure/SupportInquiryRepository.js';
 
 // Use Cases
 import { SendOtpUseCase } from './modules/auth/application/SendOtpUseCase.js';
 import { VerifyOtpUseCase } from './modules/auth/application/VerifyOtpUseCase.js';
+import { SendSignupOtpUseCase } from './modules/auth/application/SendSignupOtpUseCase.js';
+import { LoginWithPasswordUseCase } from './modules/auth/application/LoginWithPasswordUseCase.js';
+import { RegisterWithPasswordUseCase } from './modules/auth/application/RegisterWithPasswordUseCase.js';
+import { SocialAuthUseCase } from './modules/auth/application/SocialAuthUseCase.js';
+import { VerifySocialSignupUseCase } from './modules/auth/application/VerifySocialSignupUseCase.js';
+import { ForgotPasswordUseCase } from './modules/auth/application/ForgotPasswordUseCase.js';
+import { ResetPasswordUseCase } from './modules/auth/application/ResetPasswordUseCase.js';
 import { CheckUserUseCase } from './modules/users/application/CheckUserUseCase.js';
 import { RegisterUserUseCase } from './modules/users/application/RegisterUserUseCase.js';
 import { GetProfileUseCase } from './modules/users/application/GetProfileUseCase.js';
@@ -79,6 +87,7 @@ import { PatientClinicalController } from './modules/patient/presentation/patien
 import { AppointmentController } from './modules/appointments/presentation/appointment.controller.js';
 import { ContentController } from './modules/content/presentation/content.controller.js';
 import { CommerceController } from './modules/commerce/presentation/commerce.controller.js';
+import { SupportController } from './modules/support/presentation/support.controller.js';
 
 // Routers
 import { createAuthRouter } from './modules/auth/presentation/auth.routes.js';
@@ -96,6 +105,7 @@ import { createAdminRouter } from './modules/admin/presentation/admin.routes.js'
 import { createAdminAuthRouter } from './modules/admin/presentation/admin-auth.routes.js';
 import { createPatientClinicalRouter } from './modules/patient/presentation/patient-clinical.routes.js';
 import { createContentRouter } from './modules/content/presentation/content.routes.js';
+import { createSupportRouter, createAdminSupportRouter } from './modules/support/presentation/support.routes.js';
 import {
   createCommerceRouter,
   createPatientAddressRouter,
@@ -139,6 +149,7 @@ export const createContainer = (overrides = {}) => {
   const paymentGatewayService = overrides.paymentGatewayService || new PaymentGatewayService();
   const featureFlagRepository = overrides.featureFlagRepository || new FeatureFlagRepository();
   const appReleasePolicyRepository = overrides.appReleasePolicyRepository || new AppReleasePolicyRepository();
+  const supportInquiryRepository = overrides.supportInquiryRepository || new SupportInquiryRepository();
   const campaignSchedulerService =
     overrides.campaignSchedulerService ||
     new CampaignSchedulerService({
@@ -159,6 +170,59 @@ export const createContainer = (overrides = {}) => {
     userRepository,
     sessionRepository,
   });
+
+  const sendSignupOtpUseCase =
+    overrides.sendSignupOtpUseCase ||
+    new SendSignupOtpUseCase({
+      otpRepository,
+      userRepository,
+      smsService,
+    });
+
+  const loginWithPasswordUseCase =
+    overrides.loginWithPasswordUseCase ||
+    new LoginWithPasswordUseCase({
+      userRepository,
+      sessionRepository,
+    });
+
+  const registerWithPasswordUseCase =
+    overrides.registerWithPasswordUseCase ||
+    new RegisterWithPasswordUseCase({
+      userRepository,
+      otpRepository,
+      sessionRepository,
+    });
+
+  const socialAuthUseCase =
+    overrides.socialAuthUseCase ||
+    new SocialAuthUseCase({
+      userRepository,
+      sessionRepository,
+    });
+
+  const verifySocialSignupUseCase =
+    overrides.verifySocialSignupUseCase ||
+    new VerifySocialSignupUseCase({
+      userRepository,
+      otpRepository,
+      sessionRepository,
+    });
+
+  const forgotPasswordUseCase =
+    overrides.forgotPasswordUseCase ||
+    new ForgotPasswordUseCase({
+      userRepository,
+      otpRepository,
+      smsService,
+    });
+
+  const resetPasswordUseCase =
+    overrides.resetPasswordUseCase ||
+    new ResetPasswordUseCase({
+      userRepository,
+      otpRepository,
+    });
 
   const checkUserUseCase = new CheckUserUseCase({
     userRepository,
@@ -266,6 +330,13 @@ export const createContainer = (overrides = {}) => {
   const authController = new AuthController({
     sendOtpUseCase,
     verifyOtpUseCase,
+    loginWithPasswordUseCase,
+    sendSignupOtpUseCase,
+    registerWithPasswordUseCase,
+    socialAuthUseCase,
+    verifySocialSignupUseCase,
+    forgotPasswordUseCase,
+    resetPasswordUseCase,
     userRepository,
     hairTestRepository,
     sessionRepository,
@@ -289,6 +360,7 @@ export const createContainer = (overrides = {}) => {
 
   const treatmentController = new TreatmentController({
     getTreatmentHistoryUseCase,
+    treatmentRepository,
   });
 
   const reviewController = new ReviewController({
@@ -340,6 +412,11 @@ export const createContainer = (overrides = {}) => {
     imageStorage,
     submitHairTestUseCase,
   });
+  const supportController =
+    overrides.supportController ||
+    new SupportController({
+      supportInquiryRepository,
+    });
   const mediaController = new MediaController({ mediaReferenceRepository });
   const adminController = new AdminController({
     userRepository,
@@ -397,9 +474,16 @@ export const createContainer = (overrides = {}) => {
     appointmentController,
     contentController,
     commerceController,
+    supportController,
   });
   const adminAuthRouter = createAdminAuthRouter({ adminAuthController });
-  const patientClinicalRouter = createPatientClinicalRouter({ patientClinicalController, appointmentController });
+  const patientClinicalRouter = createPatientClinicalRouter({
+    patientClinicalController,
+    appointmentController,
+    treatmentController,
+  });
+  const supportRouter = createSupportRouter({ supportController });
+  const adminSupportRouter = createAdminSupportRouter({ supportController });
 
   return {
     repositories: {
@@ -428,6 +512,7 @@ export const createContainer = (overrides = {}) => {
       orderRepository,
       featureFlagRepository,
       appReleasePolicyRepository,
+      supportInquiryRepository,
     },
     services: {
       smsService,
@@ -439,6 +524,13 @@ export const createContainer = (overrides = {}) => {
     useCases: {
       sendOtpUseCase,
       verifyOtpUseCase,
+      sendSignupOtpUseCase,
+      loginWithPasswordUseCase,
+      registerWithPasswordUseCase,
+      socialAuthUseCase,
+      verifySocialSignupUseCase,
+      forgotPasswordUseCase,
+      resetPasswordUseCase,
       checkUserUseCase,
       registerUserUseCase,
       getProfileUseCase,
@@ -486,6 +578,7 @@ export const createContainer = (overrides = {}) => {
       patientClinicalController,
       contentController,
       commerceController,
+      supportController,
     },
     routers: {
       authRouter,
@@ -508,6 +601,8 @@ export const createContainer = (overrides = {}) => {
       patientAddressRouter,
       patientOrderRouter,
       adminOrderRouter,
+      supportRouter,
+      adminSupportRouter,
     },
   };
 };

@@ -84,5 +84,42 @@ export class TreatmentRepository extends ITreatmentRepository {
       limit: safeLimit,
     };
   }
+
+  async updateDietMeals(userId, dietMeals) {
+    const numericId = Number(userId);
+    const meals = Array.isArray(dietMeals) ? dietMeals : [];
+    if (isMongoConnected()) {
+      let treatment = await TreatmentModel.findOne({ userId: numericId }).sort({ date: -1, id: -1 });
+      if (treatment) {
+        treatment.diet_meals = meals;
+        await treatment.save();
+        return toTreatment(treatment);
+      }
+      return toTreatment(
+        await TreatmentModel.create({
+          id: await nextId('treatments'),
+          userId: numericId,
+          treatment_name: 'Nutritional Care Plan',
+          diet_meals: meals,
+          date: new Date().toISOString().split('T')[0],
+        }),
+      );
+    }
+    let treatment = store.treatments.find((t) => Number(t.userId) === numericId);
+    if (treatment) {
+      treatment.diet_meals = meals;
+      return new Treatment(treatment);
+    }
+    const newId = store.treatments.length > 0 ? Math.max(...store.treatments.map((t) => t.id)) + 1 : 1;
+    const newRecord = {
+      id: newId,
+      userId: numericId,
+      treatment_name: 'Nutritional Care Plan',
+      diet_meals: meals,
+      date: new Date().toISOString().split('T')[0],
+    };
+    store.treatments.push(newRecord);
+    return new Treatment(newRecord);
+  }
 }
 

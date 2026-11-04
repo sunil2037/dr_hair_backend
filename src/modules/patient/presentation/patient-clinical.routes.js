@@ -3,7 +3,7 @@ import { authenticateToken } from '../../../shared/middlewares/auth.middleware.j
 import { requireRegisteredUser } from '../../../shared/middlewares/registered-user.middleware.js';
 import { uploadScalpPhotos } from '../../../shared/middlewares/upload.middleware.js';
 
-export const createPatientClinicalRouter = ({ patientClinicalController, appointmentController }) => {
+export const createPatientClinicalRouter = ({ patientClinicalController, appointmentController, treatmentController }) => {
   const router = Router();
   router.use(authenticateToken, requireRegisteredUser);
 
@@ -16,6 +16,9 @@ export const createPatientClinicalRouter = ({ patientClinicalController, appoint
   ]);
 
   router.get('/clinical-record', patientClinicalController.getClinicalRecord);
+  if (treatmentController?.getPatientDietPlan) {
+    router.get('/diet-plan', treatmentController.getPatientDietPlan);
+  }
   router.get('/assessment/draft', patientClinicalController.getAssessmentDraft);
   router.put('/assessment/draft', patientClinicalController.saveAssessmentDraft);
   router.delete('/assessment/draft', patientClinicalController.deleteAssessmentDraft);

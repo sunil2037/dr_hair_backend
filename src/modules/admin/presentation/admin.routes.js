@@ -3,7 +3,7 @@ import { authenticateToken } from '../../../shared/middlewares/auth.middleware.j
 import { requireAdmin, requireSuperAdmin, requirePermission, requireAnyPermission } from '../../../shared/middlewares/admin.middleware.js';
 import { uploadClinicalReportFile } from '../../../shared/middlewares/clinical-report-upload.middleware.js';
 
-export const createAdminRouter = ({ adminController, notificationController, videoController, appointmentController, contentController, commerceController }) => {
+export const createAdminRouter = ({ adminController, notificationController, videoController, appointmentController, contentController, commerceController, supportController }) => {
   const router = Router();
   router.use(authenticateToken, requireAdmin);
 
@@ -64,6 +64,13 @@ export const createAdminRouter = ({ adminController, notificationController, vid
   // Care plans / treatments
   router.get('/treatments', requireAnyPermission('care-plans.edit', 'assessments.review'), adminController.listTreatments);
   router.post('/treatments', requireAnyPermission('care-plans.edit', 'assessments.review'), adminController.createTreatment);
+  router.post('/users/:userId/diet-plan', requireAnyPermission('care-plans.edit', 'assessments.review'), adminController.updatePatientDietPlan);
+
+  // Support inquiries
+  if (supportController) {
+    router.get('/support/inquiries', requireAnyPermission('content.edit', 'patients.view'), supportController.listInquiries);
+    router.patch('/support/inquiries/:id', requireAnyPermission('content.edit', 'patients.view'), supportController.updateInquiry);
+  }
 
   // Reviews
   router.get('/reviews', requireAnyPermission('content.edit', 'content.publish'), adminController.listReviews);

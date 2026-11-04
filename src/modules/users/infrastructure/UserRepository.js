@@ -72,6 +72,45 @@ export class UserRepository extends IUserRepository {
     return user ? this.findById(user.id) : null;
   }
 
+  async findWithPasswordByEmail(email) {
+    if (!email) return null;
+    const clean = cleanEmail(email);
+    if (isMongoConnected()) {
+      const record = await UserModel.findOne({ email: clean })
+        .select('+passwordHash')
+        .lean();
+      if (!record) return null;
+      record.patient_code ||= formatPatientCode(record.id);
+      return toUser(record);
+    }
+    const user = store.users.find((u) => u.email && u.email.toLowerCase() === clean);
+    if (!user) return null;
+    user.patient_code ||= formatPatientCode(user.id);
+    return new User(user);
+  }
+
+  async findByGoogleId(googleId) {
+    if (!googleId) return null;
+    const clean = String(googleId).trim();
+    if (isMongoConnected()) {
+      const record = await UserModel.findOne({ googleId: clean }).select('id').lean();
+      return record ? this.findById(record.id) : null;
+    }
+    const user = store.users.find((u) => u.googleId === clean);
+    return user ? this.findById(user.id) : null;
+  }
+
+  async findByAppleId(appleId) {
+    if (!appleId) return null;
+    const clean = String(appleId).trim();
+    if (isMongoConnected()) {
+      const record = await UserModel.findOne({ appleId: clean }).select('id').lean();
+      return record ? this.findById(record.id) : null;
+    }
+    const user = store.users.find((u) => u.appleId === clean);
+    return user ? this.findById(user.id) : null;
+  }
+
   async findByPhone(phone) {
     if (!phone) return null;
     const clean = cleanPhone(phone);
@@ -128,6 +167,10 @@ export class UserRepository extends IUserRepository {
           email: cleanEmail(userData.email) || undefined,
           phone: userData.phone || undefined,
           phoneNormalized: cleanPhone(userData.phone) || undefined,
+          passwordHash: userData.passwordHash || undefined,
+          authProviders: userData.authProviders || ['password'],
+          googleId: userData.googleId || undefined,
+          appleId: userData.appleId || undefined,
           age: userData.age,
           gender: userData.gender,
           city: userData.city,
@@ -147,6 +190,10 @@ export class UserRepository extends IUserRepository {
       name: userData.name,
       email: userData.email,
       phone: userData.phone,
+      passwordHash: userData.passwordHash || null,
+      authProviders: userData.authProviders || ['password'],
+      googleId: userData.googleId || null,
+      appleId: userData.appleId || null,
       age: userData.age,
       gender: userData.gender,
       city: userData.city,
@@ -160,6 +207,24 @@ export class UserRepository extends IUserRepository {
 
     store.users.push(newUserRecord);
     return new User(newUserRecord);
+  }
+
+  async setPassword(userId, passwordHash) {
+    const numericId = resolvePatientId(userId);
+    if (!numericId) return false;
+    if (isMongoConnected()) {
+      await UserModel.updateOne(
+        { id: numericId },
+        { $set: { passwordHash, updated_at: new Date() }, $addToSet: { authProviders: 'password' } },
+      );
+      return true;
+    }
+    const user = store.users.find((u) => u.id === numericId);
+    if (!user) return false;
+    user.passwordHash = passwordHash;
+    user.authProviders = [...new Set([...(user.authProviders || []), 'password'])];
+    user.updated_at = new Date().toISOString();
+    return true;
   }
 
   async update(id, updateData) {

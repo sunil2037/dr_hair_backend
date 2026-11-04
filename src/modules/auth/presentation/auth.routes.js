@@ -51,6 +51,28 @@ export const createAuthRouter = ({ authController }) => {
     }),
   });
 
+  const authActionLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 25,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    store: createRateLimitStore('auth-action-ip'),
+    passOnStoreError: true,
+    handler: (req, res) => sendError(res, {
+      message: 'Too many authentication attempts. Please try again later.',
+      statusCode: 429,
+    }),
+  });
+
+  // Password & Social Auth Routes (Release-Ready)
+  router.post('/login', authActionLimiter, parseFormData, authController.login);
+  router.post('/send-signup-otp', sendOtpLimiter, parseFormData, authController.sendSignupOtp);
+  router.post('/register', authActionLimiter, parseFormData, authController.register);
+  router.post('/social-login', authActionLimiter, parseFormData, authController.socialLogin);
+  router.post('/verify-social-signup', authActionLimiter, parseFormData, authController.verifySocialSignup);
+  router.post('/forgot-password', sendOtpLimiter, parseFormData, authController.forgotPassword);
+  router.post('/reset-password', authActionLimiter, parseFormData, authController.resetPassword);
+
   // Legacy & Flutter App routes:
   // POST /auth/send_login_otp
   router.post('/send_login_otp', sendOtpLimiter, parseFormData, sendOtpIdentityLimiter, authController.sendLoginOtp);

@@ -691,6 +691,48 @@ export class AdminController {
     }
   };
 
+  updatePatientDietPlan = async (req, res, next) => {
+    try {
+      const { userId } = req.params;
+      const { diet_meals } = req.body || {};
+      if (!Array.isArray(diet_meals) || diet_meals.length > 20) {
+        throw new BadRequestError('diet_meals must contain up to 20 meal suggestions.');
+      }
+      const normalizedDietMeals = diet_meals.map((meal) => {
+        if (!meal || typeof meal !== 'object' || Array.isArray(meal)) {
+          throw new BadRequestError('Each diet meal must be an object.');
+        }
+        const fields = { type: 60, name: 160, nutrients: 200, benefit: 500 };
+        for (const [field, maxLength] of Object.entries(fields)) {
+          const value = meal[field];
+          if (value !== undefined && (typeof value !== 'string' || value.length > maxLength)) {
+            throw new BadRequestError(`Diet meal ${field} must be text of at most ${maxLength} characters.`);
+          }
+        }
+        if (!meal.type?.trim() || !meal.name?.trim()) {
+          throw new BadRequestError('Each diet meal needs a meal type and name.');
+        }
+        return Object.fromEntries(Object.keys(fields).map((field) => [field, typeof meal[field] === 'string' ? meal[field].trim() : '']));
+      });
+
+      const updated = await this.treatmentRepository.updateDietMeals(userId, normalizedDietMeals);
+      const actor = String(req.user?.email || req.user?.login || 'Admin');
+      await this.auditEventRepository?.record({
+        actor,
+        action: 'care_plan.diet_updated',
+        target: `patient:${userId}`,
+        metadata: { meal_count: normalizedDietMeals.length },
+      }).catch(() => null);
+
+      return sendSuccess(res, {
+        message: 'Patient diet plan updated successfully.',
+        data: { diet_meals: updated?.diet_meals || [] },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   updateHairTestStatus = async (req, res, next) => {
     try {
       const { referenceNo } = req.params;
