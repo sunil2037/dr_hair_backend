@@ -61,7 +61,7 @@ const otpSchema = new Schema(
     otpHash: { type: String, required: true, select: false },
     expiresAt: { type: Date, required: true, expires: 0 },
     attempts: { type: Number, default: 0, min: 0 },
-    type: { type: String, enum: ['login', 'register'], default: 'login' },
+    type: { type: String, enum: ['login', 'register', 'signup_verification', 'password_reset'], default: 'login' },
   },
   { collection: 'otps', versionKey: false },
 );

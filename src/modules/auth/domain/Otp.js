@@ -8,7 +8,7 @@ export class Otp {
     this.login = login;
     this.otpHash = otpHash;
     this.expiresAt = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
-    this.type = type; // 'login' or 'register'
+    this.type = type; // 'login', 'register', 'signup_verification', 'password_reset'
     this.attempts = Number(attempts) || 0;
   }
 

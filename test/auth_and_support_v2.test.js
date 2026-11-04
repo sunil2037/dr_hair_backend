@@ -37,7 +37,8 @@ describe('Auth & Support V2 Clean Architecture Tests', () => {
   });
 
   it('should register a new patient account with verified OTP and password', async () => {
-    const otp = sentOtps.get(testPhone) || '123456';
+    const clean = testPhone.slice(-10);
+    const otp = sentOtps.get(clean) || sentOtps.get(testPhone) || '123456';
     const regResult = await registerWithPasswordUseCase.execute({
       name: 'Sunil Test Patient',
       email: testEmail,
@@ -80,16 +81,17 @@ describe('Auth & Support V2 Clean Architecture Tests', () => {
 
   it('should issue password reset OTP and reset password', async () => {
     const forgotRes = await forgotPasswordUseCase.execute({
-      identifier: testEmail,
+      login: testEmail,
     });
     assert.ok(forgotRes.message);
 
-    const resetOtp = sentOtps.get(testPhone) || '123456';
+    const clean = testPhone.slice(-10);
+    const resetOtp = sentOtps.get(clean) || sentOtps.get(testPhone) || '123456';
     const newPassword = 'NewSecretPassword456!';
     const resetRes = await resetPasswordUseCase.execute({
-      identifier: testEmail,
+      login: testEmail,
       otp: resetOtp,
-      new_password: newPassword,
+      newPassword,
     });
 
     assert.equal(resetRes.success, true);
@@ -107,12 +109,12 @@ describe('Auth & Support V2 Clean Architecture Tests', () => {
     const inquiry = await repo.create({
       name: 'Clinical Inquirer',
       contact: 'test@example.com',
-      category: 'Clinical Assessment',
+      topic: 'Clinical Assessment',
       message: 'Experiencing thinning on crown area.',
     });
 
     assert.ok(inquiry.id);
-    assert.equal(inquiry.category, 'Clinical Assessment');
+    assert.equal(inquiry.topic, 'Clinical Assessment');
     assert.equal(inquiry.status, 'pending');
 
     const list = await repo.listAdmin({ page: 1, limit: 10 });

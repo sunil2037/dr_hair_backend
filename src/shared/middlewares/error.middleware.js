@@ -24,6 +24,23 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // Mongoose validation or cast errors
+  if (err.name === 'ValidationError') {
+    return sendError(res, {
+      message: err.message,
+      code: 'VALIDATION_ERROR',
+      statusCode: 400,
+      details: err.errors,
+    });
+  }
+  if (err.name === 'CastError') {
+    return sendError(res, {
+      message: `Invalid format for field: ${err.path}`,
+      code: 'INVALID_ID',
+      statusCode: 400,
+    });
+  }
+
   // Unhandled error in development vs production
   const message = config.env === 'production'
     ? 'Internal Server Error' 

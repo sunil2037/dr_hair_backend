@@ -21,11 +21,12 @@ export class SendSignupOtpUseCase {
   }
 
   async execute({ phone, tempToken }) {
-    if (!phone || typeof phone !== 'string' || phone.trim() === '') {
+    const rawPhone = String(phone || '').trim();
+    if (!rawPhone) {
       throw new BadRequestError('Mobile number is required for account verification.');
     }
 
-    const cleanPhone = normalizeLogin(phone);
+    const cleanPhone = normalizeLogin(rawPhone);
     if (!isValidLogin(cleanPhone) || cleanPhone.includes('@')) {
       throw new BadRequestError('Enter a valid 10-digit mobile number.');
     }
