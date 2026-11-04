@@ -121,5 +121,82 @@ export class TreatmentRepository extends ITreatmentRepository {
     store.treatments.push(newRecord);
     return new Treatment(newRecord);
   }
+
+  async getRoutineSteps(userId) {
+    const numericId = Number(userId);
+    if (isMongoConnected()) {
+      const treatment = await TreatmentModel.findOne({ userId: numericId }).sort({ date: -1, id: -1 }).lean();
+      return treatment?.routine_steps || [];
+    }
+    const treatment = store.treatments.find((t) => Number(t.userId) === numericId);
+    return treatment?.routine_steps || [];
+  }
+
+  async addRoutineStep(userId, step) {
+    const numericId = Number(userId);
+    const cleanStep = {
+      title: String(step.title || '').trim(),
+      subtitle: String(step.subtitle || '').trim(),
+      category: String(step.category || 'Lifestyle').trim(),
+      time_of_day: String(step.time_of_day || 'Daily').trim(),
+    };
+
+    if (isMongoConnected()) {
+      let treatment = await TreatmentModel.findOne({ userId: numericId }).sort({ date: -1, id: -1 });
+      if (treatment) {
+        treatment.routine_steps = [...(treatment.routine_steps || []), cleanStep];
+        await treatment.save();
+        return treatment.routine_steps;
+      }
+      const created = await TreatmentModel.create({
+        id: await nextId('treatments'),
+        userId: numericId,
+        treatment_name: 'Personalized Daily Routine',
+        routine_steps: [cleanStep],
+        date: new Date().toISOString().split('T')[0],
+      });
+      return created.routine_steps;
+    }
+
+    let treatment = store.treatments.find((t) => Number(t.userId) === numericId);
+    if (treatment) {
+      treatment.routine_steps = [...(treatment.routine_steps || []), cleanStep];
+      return treatment.routine_steps;
+    }
+    const newId = store.treatments.length > 0 ? Math.max(...store.treatments.map((t) => t.id)) + 1 : 1;
+    const newRecord = {
+      id: newId,
+      userId: numericId,
+      treatment_name: 'Personalized Daily Routine',
+      routine_steps: [cleanStep],
+      date: new Date().toISOString().split('T')[0],
+    };
+    store.treatments.push(newRecord);
+    return newRecord.routine_steps;
+  }
+
+  async removeRoutineStep(userId, stepIndex) {
+    const numericId = Number(userId);
+    const index = parseInt(stepIndex, 10);
+    if (isMongoConnected()) {
+      let treatment = await TreatmentModel.findOne({ userId: numericId }).sort({ date: -1, id: -1 });
+      if (treatment && Array.isArray(treatment.routine_steps)) {
+        if (index >= 0 && index < treatment.routine_steps.length) {
+          treatment.routine_steps.splice(index, 1);
+          await treatment.save();
+        }
+        return treatment.routine_steps;
+      }
+      return [];
+    }
+    let treatment = store.treatments.find((t) => Number(t.userId) === numericId);
+    if (treatment && Array.isArray(treatment.routine_steps)) {
+      if (index >= 0 && index < treatment.routine_steps.length) {
+        treatment.routine_steps.splice(index, 1);
+      }
+      return treatment.routine_steps;
+    }
+    return [];
+  }
 }
 

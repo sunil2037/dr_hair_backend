@@ -2,7 +2,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { PatientClinicalController } from '../src/modules/patient/presentation/patient-clinical.controller.js';
 
-const recorder = () => ({ body: null, json(body) { this.body = body; return this; }, status() { return this; } });
+const recorder = () => ({
+  body: null,
+  statusCode: 200,
+  json(body) { this.body = body; return this; },
+  status(code) { this.statusCode = code; return this; },
+});
 
 describe('Patient clinical record APIs', () => {
   it('returns only the authenticated patient’s assessments, care plans, and report metadata', async () => {
@@ -34,5 +39,53 @@ describe('Patient clinical record APIs', () => {
 
     assert.deepEqual(lookup, { userId: 42, reportId: 'report-2' });
     assert.equal(error?.statusCode, 404);
+  });
+
+  it('allows patients to retrieve, add, and remove personal care routine steps', async () => {
+    let storedSteps = [
+      { title: 'Morning Hair Tonic', subtitle: 'Apply 1ml', category: 'Clinical Topical', time_of_day: 'Morning' },
+    ];
+    const controller = new PatientClinicalController({
+      treatmentRepository: {
+        getRoutineSteps: async (userId) => storedSteps,
+        addRoutineStep: async (userId, step) => {
+          storedSteps.push(step);
+          return storedSteps;
+        },
+        removeRoutineStep: async (userId, index) => {
+          storedSteps.splice(index, 1);
+          return storedSteps;
+        },
+      },
+      patientActivityRepository: { record: async () => {} },
+    });
+
+    const getRes = recorder();
+    await controller.getRoutineSteps({ user: { id: 42 } }, getRes, (err) => { throw err; });
+    assert.equal(getRes.body.data.routine_steps.length, 1);
+    assert.equal(getRes.body.data.routine_steps[0].title, 'Morning Hair Tonic');
+
+    const addRes = recorder();
+    await controller.addRoutineStep(
+      {
+        user: { id: 42 },
+        body: {
+          title: 'Scalp Dermarolling (0.5mm)',
+          subtitle: 'Roll gently for 5 mins',
+          category: 'Lifestyle',
+          time_of_day: 'Evening',
+        },
+      },
+      addRes,
+      (err) => { throw err; },
+    );
+    assert.equal(addRes.statusCode, 201);
+    assert.equal(addRes.body.data.routine_steps.length, 2);
+    assert.equal(addRes.body.data.routine_steps[1].title, 'Scalp Dermarolling (0.5mm)');
+
+    const deleteRes = recorder();
+    await controller.deleteRoutineStep({ user: { id: 42 }, params: { stepIndex: '0' } }, deleteRes, (err) => { throw err; });
+    assert.equal(deleteRes.body.data.routine_steps.length, 1);
+    assert.equal(deleteRes.body.data.routine_steps[0].title, 'Scalp Dermarolling (0.5mm)');
   });
 });

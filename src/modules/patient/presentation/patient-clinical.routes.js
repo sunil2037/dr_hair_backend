@@ -19,6 +19,9 @@ export const createPatientClinicalRouter = ({ patientClinicalController, appoint
   if (treatmentController?.getPatientDietPlan) {
     router.get('/diet-plan', treatmentController.getPatientDietPlan);
   }
+  router.get('/routine-steps', patientClinicalController.getRoutineSteps);
+  router.post('/routine-steps', patientClinicalController.addRoutineStep);
+  router.delete('/routine-steps/:stepIndex', patientClinicalController.deleteRoutineStep);
   router.get('/assessment/draft', patientClinicalController.getAssessmentDraft);
   router.put('/assessment/draft', patientClinicalController.saveAssessmentDraft);
   router.delete('/assessment/draft', patientClinicalController.deleteAssessmentDraft);

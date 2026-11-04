@@ -278,4 +278,85 @@ export class PatientClinicalController {
       next(error);
     }
   };
+
+  getRoutineSteps = async (req, res, next) => {
+    try {
+      const userId = Number(req.user.id);
+      const steps = this.treatmentRepository?.getRoutineSteps
+        ? await this.treatmentRepository.getRoutineSteps(userId)
+        : [];
+      return sendSuccess(res, {
+        data: {
+          routine_steps: steps,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  addRoutineStep = async (req, res, next) => {
+    try {
+      const userId = Number(req.user.id);
+      const { title, subtitle, category, time_of_day } = req.body || {};
+      if (!title || typeof title !== 'string' || !title.trim()) {
+        throw new BadRequestError('Care step title is required.');
+      }
+
+      const step = {
+        title: title.trim().slice(0, 150),
+        subtitle: typeof subtitle === 'string' ? subtitle.trim().slice(0, 300) : '',
+        category: typeof category === 'string' ? category.trim().slice(0, 80) : 'Lifestyle',
+        time_of_day: typeof time_of_day === 'string' ? time_of_day.trim().slice(0, 50) : 'Daily',
+      };
+
+      const updated = this.treatmentRepository?.addRoutineStep
+        ? await this.treatmentRepository.addRoutineStep(userId, step)
+        : [step];
+
+      if (this.patientActivityRepository?.record) {
+        await this.patientActivityRepository.record({
+          userId,
+          type: 'routine',
+          title: 'Care routine step added',
+          summary: step.title,
+          actor: 'Patient app',
+          metadata: { step_title: step.title },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, {
+        message: 'Care routine step added successfully.',
+        statusCode: 201,
+        data: {
+          routine_steps: updated,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteRoutineStep = async (req, res, next) => {
+    try {
+      const userId = Number(req.user.id);
+      const stepIndex = parseInt(req.params.stepIndex, 10);
+      if (Number.isNaN(stepIndex) || stepIndex < 0) {
+        throw new BadRequestError('A valid step index is required.');
+      }
+
+      const updated = this.treatmentRepository?.removeRoutineStep
+        ? await this.treatmentRepository.removeRoutineStep(userId, stepIndex)
+        : [];
+
+      return sendSuccess(res, {
+        message: 'Care routine step removed.',
+        data: {
+          routine_steps: updated,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
