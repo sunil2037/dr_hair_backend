@@ -77,9 +77,12 @@ export class AuthController {
 
   sendSignupOtp = async (req, res, next) => {
     try {
-      const { phone } = req.body || {};
-      const result = await this.sendSignupOtpUseCase.execute({ phone });
-      return sendSuccess(res, { message: result.message });
+      const { phone, tempToken } = req.body || {};
+      const result = await this.sendSignupOtpUseCase.execute({ phone, tempToken });
+      return sendSuccess(res, {
+        message: result.message,
+        requires_verification: result.requires_verification ?? true,
+      });
     } catch (err) {
       next(err);
     }

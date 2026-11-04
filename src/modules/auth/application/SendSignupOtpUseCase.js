@@ -1,4 +1,5 @@
 import { createHmac, randomInt } from 'node:crypto';
+import jwt from 'jsonwebtoken';
 import { Otp } from '../domain/Otp.js';
 import { BadRequestError, ConflictError } from '../../../shared/errors/index.js';
 import { config } from '../../../config/env.js';
@@ -19,7 +20,7 @@ export class SendSignupOtpUseCase {
     this.expiryMinutes = expiryMinutes;
   }
 
-  async execute({ phone }) {
+  async execute({ phone, tempToken }) {
     if (!phone || typeof phone !== 'string' || phone.trim() === '') {
       throw new BadRequestError('Mobile number is required for account verification.');
     }
@@ -29,10 +30,19 @@ export class SendSignupOtpUseCase {
       throw new BadRequestError('Enter a valid 10-digit mobile number.');
     }
 
-    // Check if phone number is already registered to a patient
-    const existing = await this.userRepository.findByPhone(cleanPhone);
-    if (existing) {
-      throw new ConflictError('This mobile number is already registered. Please sign in.');
+    // If tempToken is provided (social signup/account linking), verify it
+    if (tempToken) {
+      try {
+        jwt.verify(tempToken, this.jwtSecret);
+      } catch (_) {
+        throw new BadRequestError('Invalid or expired registration session.');
+      }
+    } else {
+      // Standard password signup: phone must not be registered
+      const existing = await this.userRepository.findByPhone(cleanPhone);
+      if (existing) {
+        throw new ConflictError('This mobile number is already registered. Please sign in.');
+      }
     }
 
     const otpCode = String(randomInt(100000, 1000000));
@@ -56,6 +66,7 @@ export class SendSignupOtpUseCase {
 
     return {
       message: 'A verification code has been sent to your mobile number.',
+      requires_verification: true,
     };
   }
 

@@ -44,11 +44,8 @@ export class VerifySocialSignupUseCase {
     }
     const cleanOtp = String(otp).trim();
 
-    // 2. Check if phone is already taken
+    // 2. Lookup if phone already belongs to an existing patient
     const existingPhone = await this.userRepository.findByPhone(cleanPhone);
-    if (existingPhone) {
-      throw new ConflictError('This mobile number is already registered to another patient.');
-    }
 
     // 3. Verify OTP
     const codeHash = this._hashOtp(cleanPhone, cleanOtp);
@@ -60,18 +57,39 @@ export class VerifySocialSignupUseCase {
       throw new BadRequestError('Invalid verification code.');
     }
 
-    // 4. Create User
-    const userData = {
-      name: decoded.name || 'Patient',
-      email: decoded.email || undefined,
-      phone: cleanPhone,
-      authProviders: [decoded.provider],
-      platform: 'app',
-    };
-    if (decoded.provider === 'google') userData.googleId = decoded.providerId;
-    if (decoded.provider === 'apple') userData.appleId = decoded.providerId;
+    // 4. Create User or Link to existing patient record
+    let user;
+    if (existingPhone) {
+      const updatePayload = {
+        updated_at: new Date(),
+      };
+      if (decoded.provider === 'google' && !existingPhone.googleId) {
+        updatePayload.googleId = decoded.providerId;
+      }
+      if (decoded.provider === 'apple' && !existingPhone.appleId) {
+        updatePayload.appleId = decoded.providerId;
+      }
+      if (decoded.email && (!existingPhone.email || existingPhone.email.trim() === '')) {
+        updatePayload.email = decoded.email;
+      }
+      const currentProviders = existingPhone.authProviders || ['phone'];
+      if (!currentProviders.includes(decoded.provider)) {
+        updatePayload.authProviders = [...currentProviders, decoded.provider];
+      }
+      user = await this.userRepository.update(existingPhone.id, updatePayload);
+    } else {
+      const userData = {
+        name: decoded.name || 'Patient',
+        email: decoded.email || undefined,
+        phone: cleanPhone,
+        authProviders: [decoded.provider],
+        platform: 'app',
+      };
+      if (decoded.provider === 'google') userData.googleId = decoded.providerId;
+      if (decoded.provider === 'apple') userData.appleId = decoded.providerId;
 
-    const user = await this.userRepository.create(userData);
+      user = await this.userRepository.create(userData);
+    }
 
     let session = null;
     const tokenPayload = {
