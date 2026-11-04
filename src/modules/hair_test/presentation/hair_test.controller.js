@@ -20,6 +20,10 @@ export class HairTestController {
 
       return sendSuccess(res, {
         message: result.message,
+        data: {
+          reference_no: result.reference_no,
+          test: result.test,
+        },
         extra: {
           reference_no: result.reference_no,
         },
