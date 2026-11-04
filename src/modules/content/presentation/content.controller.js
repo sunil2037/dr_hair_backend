@@ -1,5 +1,6 @@
 import { BadRequestError, NotFoundError } from '../../../shared/errors/index.js';
 import { sendSuccess } from '../../../shared/utils/response.js';
+import { LEGAL_POLICIES } from '../infrastructure/legalPoliciesData.js';
 
 export class ContentController {
   constructor({ contentRepository, auditEventRepository = null }) {
@@ -42,6 +43,37 @@ export class ContentController {
       const { placement, limit } = req.query || {};
       const items = await this.contentRepository.listPublished({ type: 'tip', placement, limit });
       return sendSuccess(res, { data: items });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listPolicies = async (req, res, next) => {
+    try {
+      const summaryList = LEGAL_POLICIES.map((p) => ({
+        slug: p.slug,
+        type: p.type,
+        title: p.title,
+        last_updated: p.last_updated,
+        effective_date: p.effective_date,
+        summary: p.summary,
+      }));
+      return sendSuccess(res, { data: { items: summaryList } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getPolicyBySlug = async (req, res, next) => {
+    try {
+      const { slug } = req.params;
+      const policy = LEGAL_POLICIES.find(
+        (p) => p.slug.toLowerCase() === (slug || '').toLowerCase() || p.type.toLowerCase() === (slug || '').toLowerCase(),
+      );
+      if (!policy) {
+        throw new NotFoundError(`Policy with slug '${slug}' was not found.`);
+      }
+      return sendSuccess(res, { data: policy });
     } catch (error) {
       next(error);
     }
