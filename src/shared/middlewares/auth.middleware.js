@@ -66,6 +66,16 @@ export const authenticateToken = async (req, res, next) => {
         ),
       );
     }
+    req.user = {
+      ...decoded,
+      id: user.id,
+      login: decoded.login || user.phone || user.email || (user.id ? String(user.id) : ''),
+      phone: decoded.phone || user.phone,
+      email: decoded.email || user.email,
+      name: decoded.name || user.name,
+      patient_code: decoded.patient_code || user.patient_code,
+    };
+    return next();
   }
 
   // Attach decoded user information to request object

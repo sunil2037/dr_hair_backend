@@ -48,7 +48,7 @@ export class UpdateProfileUseCase {
       throw new NotFoundError('User not found.');
     }
 
-    const identity = normalizeLogin(verifiedLogin);
+    const identity = normalizeLogin(verifiedLogin || user.phone || user.email || (user.id ? String(user.id) : ''));
     if (!identity) throw new UnauthorizedError('A verified login is required to update this profile.');
     if (
       cleanEmail

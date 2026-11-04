@@ -71,6 +71,22 @@ describe('Users / Admin Module - Clean Architecture Tests', () => {
     assert.equal(result.user.city, 'Delhi');
   });
 
+  it('should update user profile without explicit verifiedLogin parameter', async () => {
+    const result = await updateProfileUseCase.execute({
+      userId: 12,
+      name: 'Sahil',
+      age: 24,
+      gender: 'Male',
+      city: '',
+      occupation: '',
+    });
+
+    assert.equal(result.message, 'Profile updated successfully.');
+    assert.equal(result.user.name, 'Sahil');
+    assert.equal(result.user.age, 24);
+    assert.equal(result.user.gender, 'Male');
+  });
+
   it('should update user profile avatar', async () => {
     updateProfilePictureUseCase.imageStorage = {
       uploadImage: async () => ({ secureUrl: 'uploads/profiles/custom_avatar_123.jpg' }),
