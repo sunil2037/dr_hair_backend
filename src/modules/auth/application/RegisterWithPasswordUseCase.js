@@ -59,7 +59,7 @@ export class RegisterWithPasswordUseCase {
     // Verify OTP
     const codeHash = this._hashOtp(cleanPhone, cleanOtp);
     const otpResult = await this.otpRepository.verifyAndConsume(cleanPhone, codeHash);
-    if (otpResult.status !== 'success') {
+    if (otpResult.status !== 'valid' && otpResult.status !== 'success') {
       if (otpResult.status === 'expired') {
         throw new BadRequestError('Verification code has expired. Please request a new one.');
       }

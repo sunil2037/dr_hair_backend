@@ -38,7 +38,7 @@ export class ResetPasswordUseCase {
     const codeHash = this._hashOtp(phoneDestination, cleanOtp);
 
     const otpResult = await this.otpRepository.verifyAndConsume(phoneDestination, codeHash);
-    if (otpResult.status !== 'success') {
+    if (otpResult.status !== 'valid' && otpResult.status !== 'success') {
       if (otpResult.status === 'expired') {
         throw new BadRequestError('Reset code has expired. Please request a new one.');
       }
