@@ -14,6 +14,9 @@ export function createCommerceRouter({ commerceController }) {
   // Public Gateway Webhook (HMAC signature verified inside controller)
   router.post('/webhook/payment', (req, res, next) => commerceController.handlePaymentWebhook(req, res, next));
 
+  // Public/Patient Coupon list
+  router.get('/coupons', (req, res, next) => commerceController.listCoupons(req, res, next));
+
   return router;
 }
 
@@ -51,6 +54,19 @@ export function createAdminOrderRouter({ commerceController }) {
   router.patch('/:orderId/fulfillment', (req, res, next) => commerceController.updateFulfillment(req, res, next));
   router.post('/:orderId/cancel', (req, res, next) => commerceController.cancelAdminOrder(req, res, next));
   router.post('/:orderId/refund', (req, res, next) => commerceController.refundAdminOrder(req, res, next));
+
+  return router;
+}
+
+export function createAdminCouponRouter({ commerceController }) {
+  const router = Router();
+  router.use(authenticateToken);
+  router.use(requirePermission('commerce.manage'));
+
+  router.get('/', (req, res, next) => commerceController.listCoupons(req, res, next));
+  router.post('/', (req, res, next) => commerceController.createCoupon(req, res, next));
+  router.patch('/:id', (req, res, next) => commerceController.updateCoupon(req, res, next));
+  router.delete('/:id', (req, res, next) => commerceController.deleteCoupon(req, res, next));
 
   return router;
 }

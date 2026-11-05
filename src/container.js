@@ -26,6 +26,7 @@ import { ContentRepository } from './modules/content/infrastructure/ContentRepos
 import { AddressRepository } from './modules/commerce/infrastructure/AddressRepository.js';
 import { InventoryRepository } from './modules/commerce/infrastructure/InventoryRepository.js';
 import { OrderRepository } from './modules/commerce/infrastructure/OrderRepository.js';
+import { CouponRepository } from './modules/commerce/infrastructure/CouponRepository.js';
 import { PaymentGatewayService } from './modules/commerce/infrastructure/PaymentGatewayService.js';
 import { FeatureFlagRepository } from './modules/admin/infrastructure/FeatureFlagRepository.js';
 import { AppReleasePolicyRepository } from './modules/admin/infrastructure/AppReleasePolicyRepository.js';
@@ -57,6 +58,9 @@ import { GetProductByIdUseCase } from './modules/products/application/GetProduct
 import { CreateProductUseCase } from './modules/products/application/CreateProductUseCase.js';
 import { UpdateProductUseCase } from './modules/products/application/UpdateProductUseCase.js';
 import { DeleteProductUseCase } from './modules/products/application/DeleteProductUseCase.js';
+import { ListCategoriesUseCase } from './modules/categories/application/ListCategoriesUseCase.js';
+import { CategoryController } from './modules/categories/presentation/category.controller.js';
+import { createCategoryRouter } from './modules/categories/presentation/category.routes.js';
 import { GetCartUseCase } from './modules/cart/application/GetCartUseCase.js';
 import { AddToCartUseCase } from './modules/cart/application/AddToCartUseCase.js';
 import { UpdateCartItemUseCase } from './modules/cart/application/UpdateCartItemUseCase.js';
@@ -111,6 +115,7 @@ import {
   createPatientAddressRouter,
   createPatientOrderRouter,
   createAdminOrderRouter,
+  createAdminCouponRouter,
 } from './modules/commerce/presentation/commerce.routes.js';
 
 /**
@@ -146,6 +151,7 @@ export const createContainer = (overrides = {}) => {
   const addressRepository = overrides.addressRepository || new AddressRepository();
   const inventoryRepository = overrides.inventoryRepository || new InventoryRepository();
   const orderRepository = overrides.orderRepository || new OrderRepository();
+  const couponRepository = overrides.couponRepository || new CouponRepository();
   const paymentGatewayService = overrides.paymentGatewayService || new PaymentGatewayService();
   const featureFlagRepository = overrides.featureFlagRepository || new FeatureFlagRepository();
   const appReleasePolicyRepository = overrides.appReleasePolicyRepository || new AppReleasePolicyRepository();
@@ -279,12 +285,18 @@ export const createContainer = (overrides = {}) => {
   const createProductUseCase = new CreateProductUseCase({ productRepository });
   const updateProductUseCase = new UpdateProductUseCase({ productRepository });
   const deleteProductUseCase = new DeleteProductUseCase({ productRepository });
+  const listCategoriesUseCase =
+    overrides.listCategoriesUseCase ||
+    new ListCategoriesUseCase({
+      productRepository,
+      videoRepository,
+    });
   const getCartUseCase = new GetCartUseCase({ cartRepository });
   const addToCartUseCase = new AddToCartUseCase({ cartRepository, productRepository });
   const updateCartItemUseCase = new UpdateCartItemUseCase({ cartRepository });
   const removeCartItemUseCase = new RemoveCartItemUseCase({ cartRepository });
   const clearCartUseCase = new ClearCartUseCase({ cartRepository });
-  const applyCouponUseCase = new ApplyCouponUseCase({ cartRepository });
+  const applyCouponUseCase = new ApplyCouponUseCase({ cartRepository, couponRepository });
 
   const checkoutUseCase =
     overrides.checkoutUseCase ||
@@ -375,13 +387,15 @@ export const createContainer = (overrides = {}) => {
     auditEventRepository,
   });
   const contentController = new ContentController({ contentRepository, auditEventRepository });
-  const videoController = new VideoController({ videoRepository });
+  const categoryController = new CategoryController({ listCategoriesUseCase });
+  const videoController = new VideoController({ videoRepository, listCategoriesUseCase });
   const productController = new ProductController({
     listProductsUseCase,
     getProductByIdUseCase,
     createProductUseCase,
     updateProductUseCase,
     deleteProductUseCase,
+    listCategoriesUseCase,
   });
   const cartController = new CartController({
     getCartUseCase,
@@ -435,6 +449,8 @@ export const createContainer = (overrides = {}) => {
     appReleasePolicyRepository,
     productRepository,
     sessionRepository,
+    notificationRepository,
+    deviceTokenRepository,
   });
 
   const commerceController =
@@ -443,6 +459,8 @@ export const createContainer = (overrides = {}) => {
       addressRepository,
       inventoryRepository,
       orderRepository,
+      couponRepository,
+      couponRepository,
       checkoutUseCase,
       verifyPaymentUseCase,
       cancelOrderUseCase,
@@ -458,6 +476,7 @@ export const createContainer = (overrides = {}) => {
   const treatmentRouter = createTreatmentRouter({ treatmentController });
   const reviewRouter = createReviewRouter({ reviewController });
   const notificationRouter = createNotificationRouter({ notificationController });
+  const categoryRouter = createCategoryRouter({ categoryController });
   const videoRouters = createVideoRouter({ videoController });
   const productRouters = createProductRouters({ productController });
   const cartRouter = createCartRouter({ cartController });
@@ -484,6 +503,7 @@ export const createContainer = (overrides = {}) => {
   });
   const supportRouter = createSupportRouter({ supportController });
   const adminSupportRouter = createAdminSupportRouter({ supportController });
+  const adminCouponRouter = createAdminCouponRouter({ commerceController });
 
   return {
     repositories: {
@@ -510,6 +530,7 @@ export const createContainer = (overrides = {}) => {
       addressRepository,
       inventoryRepository,
       orderRepository,
+      couponRepository,
       featureFlagRepository,
       appReleasePolicyRepository,
       supportInquiryRepository,
@@ -579,6 +600,7 @@ export const createContainer = (overrides = {}) => {
       contentController,
       commerceController,
       supportController,
+      categoryController,
     },
     routers: {
       authRouter,
@@ -587,6 +609,7 @@ export const createContainer = (overrides = {}) => {
       treatmentRouter,
       reviewRouter,
       notificationRouter,
+      categoryRouter,
       videoPublicRouter: videoRouters.publicRouter,
       videoAdminRouter: videoRouters.adminRouter,
       productPublicRouter: productRouters.publicRouter,
@@ -601,6 +624,7 @@ export const createContainer = (overrides = {}) => {
       patientAddressRouter,
       patientOrderRouter,
       adminOrderRouter,
+      adminCouponRouter,
       supportRouter,
       adminSupportRouter,
     },

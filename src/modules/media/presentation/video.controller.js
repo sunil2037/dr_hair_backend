@@ -7,9 +7,22 @@ import {
 import { config } from '../../../config/env.js';
 
 export class VideoController {
-  constructor({ videoRepository }) {
+  constructor({ videoRepository, listCategoriesUseCase }) {
     this.videoRepository = videoRepository;
+    this.listCategoriesUseCase = listCategoriesUseCase;
   }
+
+  listCategories = async (req, res, next) => {
+    try {
+      if (this.listCategoriesUseCase) {
+        const result = await this.listCategoriesUseCase.execute({ type: 'videos' });
+        return sendSuccess(res, result.videos || [], 'Video categories retrieved successfully.');
+      }
+      return sendSuccess(res, [], 'Video categories retrieved successfully.');
+    } catch (error) {
+      next(error);
+    }
+  };
 
   uploadSignature = async (req, res, next) => {
     try {

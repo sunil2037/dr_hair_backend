@@ -6,6 +6,7 @@ export const createVideoRouter = ({ videoController }) => {
   const publicRouter = Router();
   const adminRouter = Router();
 
+  publicRouter.get('/categories', videoController.listCategories);
   publicRouter.get('/', videoController.listPublished);
 
   adminRouter.use(authenticateToken, requireSuperAdmin);

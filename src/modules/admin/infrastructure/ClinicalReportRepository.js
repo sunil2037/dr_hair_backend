@@ -107,4 +107,11 @@ export class ClinicalReportRepository {
     report.visibility_history = [...(report.visibility_history || []), { ...event, changed_at: event.changed_at.toISOString() }];
     return { ...report };
   }
+
+  async listAll() {
+    if (isMongoConnected()) {
+      return ClinicalReportModel.find({ deleted_at: null }).sort({ created_at: -1 }).lean();
+    }
+    return store.clinicalReports.filter((report) => !report.deleted_at);
+  }
 }

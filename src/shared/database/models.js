@@ -748,10 +748,29 @@ const supportInquirySchema = new Schema(
   { collection: 'support_inquiries', versionKey: false },
 );
 
+const couponSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    code: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
+    discount_type: { type: String, enum: ['percent', 'fixed'], default: 'percent' },
+    discount_value: { type: Number, required: true, min: 0 },
+    applies_to: { type: String, default: 'All products' },
+    minimum_order: { type: Number, default: 0 },
+    uses: { type: Number, default: 0 },
+    max_uses: { type: Number, default: 1000 },
+    expires_on: { type: String, default: '' },
+    status: { type: String, enum: ['Active', 'Scheduled', 'Expired', 'Disabled'], default: 'Active', index: true },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'coupons', versionKey: false },
+);
+
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);
 export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.model('DrHairAdminAccount', adminAccountSchema);
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
 export const SupportInquiryModel = mongoose.models.DrHairSupportInquiry || mongoose.model('DrHairSupportInquiry', supportInquirySchema);
+export const CouponModel = mongoose.models.DrHairCoupon || mongoose.model('DrHairCoupon', couponSchema);
 export const HairTestModel = mongoose.models.DrHairHairTest || mongoose.model('DrHairHairTest', hairTestSchema);
 export const HairTestDraftModel = mongoose.models.DrHairHairTestDraft || mongoose.model('DrHairHairTestDraft', hairTestDraftSchema);
 export const TreatmentModel = mongoose.models.DrHairTreatment || mongoose.model('DrHairTreatment', treatmentSchema);

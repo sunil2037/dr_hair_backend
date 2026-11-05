@@ -5,6 +5,7 @@ import { uploadClinicalReport, createClinicalReportDownloadUrl, deleteClinicalRe
 import { progressCheckInResponse } from '../../../shared/utils/progress-checkin-response.js';
 import { getEffectivePermissions } from '../../../shared/utils/admin-permissions.js';
 import { hashPassword } from '../../../shared/utils/password-hasher.js';
+import { sendPushNotification } from '../../notifications/infrastructure/FirebaseAdminMessaging.js';
 
 const reportResponse = (report) => ({
   id: report.id,
@@ -48,6 +49,8 @@ export class AdminController {
     appReleasePolicyRepository,
     productRepository,
     sessionRepository,
+    notificationRepository,
+    deviceTokenRepository,
   }) {
     this.userRepository = userRepository;
     this.hairTestRepository = hairTestRepository;
@@ -65,6 +68,8 @@ export class AdminController {
     this.appReleasePolicyRepository = appReleasePolicyRepository;
     this.productRepository = productRepository;
     this.sessionRepository = sessionRepository;
+    this.notificationRepository = notificationRepository;
+    this.deviceTokenRepository = deviceTokenRepository;
   }
 
   getCurrentAdmin = async (req, res, next) => {
@@ -386,10 +391,58 @@ export class AdminController {
           metadata: { report_id: report.id, visibility, patient_consent_confirmed: visibility === 'Shared' },
         }).catch(() => null);
       }
+
+      if (visibility === 'Shared' && this.notificationRepository) {
+        try {
+          const notif = await this.notificationRepository.create({
+            userId: Number(patient.id),
+            title: 'Your hair test report is ready',
+            body: `${report.title} is now available in your Dr. Hair profile. Tap to view your report.`,
+            type: 'report',
+            destination: {
+              type: 'screen',
+              screen: 'assessment_result',
+              entityId: report.id,
+            },
+            data: {
+              report_id: report.id,
+              destination_type: 'screen',
+              screen: 'assessment_result',
+            },
+          });
+
+          if (this.deviceTokenRepository) {
+            const tokens = await this.deviceTokenRepository.listByUserId(patient.id);
+            for (const { token } of tokens) {
+              await sendPushNotification({
+                token,
+                title: notif.title,
+                body: notif.body,
+                data: {
+                  notification_id: notif.id,
+                  destination_type: 'screen',
+                  screen: 'assessment_result',
+                  entity_id: report.id,
+                },
+              }).catch(() => {});
+            }
+          }
+        } catch {}
+      }
+
       return sendSuccess(res, {
         message: visibility === 'Shared' ? 'Report is now visible to the patient.' : 'Report is now hidden from the patient.',
         data: reportResponse(report),
       });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listAllReports = async (req, res, next) => {
+    try {
+      const reports = await this.clinicalReportRepository.listAll();
+      return sendSuccess(res, { data: { reports: reports.map(reportResponse) } });
     } catch (error) {
       next(error);
     }

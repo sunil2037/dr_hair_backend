@@ -49,6 +49,7 @@ export class ResetPasswordUseCase {
     await this.userRepository.setPassword(user.id, passwordHash);
 
     return {
+      success: true,
       message: 'Password reset successfully. You can now sign in with your new password.',
     };
   }

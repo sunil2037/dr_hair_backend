@@ -4,14 +4,26 @@ import { store } from '../../../shared/database/store.js';
 import { randomUUID } from 'node:crypto';
 
 export class SupportInquiryRepository {
-  async create({ name, email, phone, message, userId = null }) {
+  async create({ name, email, phone, contact, topic = null, message, userId = null }) {
     const id = `inq_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const resolvedEmail = email
+      ? String(email).trim().toLowerCase()
+      : contact && String(contact).includes('@')
+        ? String(contact).trim().toLowerCase()
+        : null;
+    const resolvedPhone = phone
+      ? String(phone).trim()
+      : contact && !String(contact).includes('@')
+        ? String(contact).trim()
+        : '';
     const record = {
       id,
-      name: String(name).trim(),
-      email: email ? String(email).trim().toLowerCase() : null,
-      phone: String(phone).trim(),
-      message: String(message).trim(),
+      name: String(name || '').trim(),
+      email: resolvedEmail,
+      phone: resolvedPhone,
+      contact: contact ? String(contact).trim() : (resolvedEmail || resolvedPhone),
+      topic: topic ? String(topic).trim() : null,
+      message: String(message || '').trim(),
       user_id: userId,
       status: 'pending',
       created_at: new Date(),
@@ -28,7 +40,8 @@ export class SupportInquiryRepository {
     return record;
   }
 
-  async list({ status, page = 1, limit = 20 } = {}) {
+  async list(params = {}) {
+    const { status, page = 1, limit = 20 } = params;
     const numericPage = Math.max(1, parseInt(page, 10) || 1);
     const numericLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
     const skip = (numericPage - 1) * numericLimit;
@@ -70,6 +83,10 @@ export class SupportInquiryRepository {
       limit: numericLimit,
       has_more: skip + items.length < total,
     };
+  }
+
+  async listAdmin(params = {}) {
+    return this.list(params);
   }
 
   async updateStatus(id, status, adminNotes = null) {

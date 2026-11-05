@@ -4,11 +4,13 @@ import { requireSuperAdmin } from '../../../shared/middlewares/admin.middleware.
 
 export function createProductRouters({ productController }) {
   const publicRouter = Router();
+  publicRouter.get('/categories', productController.listCategories);
   publicRouter.get('/', productController.list);
   publicRouter.get('/:id', productController.getById);
 
   const adminRouter = Router();
   adminRouter.use(authenticateToken, requireSuperAdmin);
+  adminRouter.get('/categories', productController.listCategories);
   adminRouter.get('/', productController.listAdmin);
   adminRouter.get('/:id', productController.getById);
   adminRouter.post('/', productController.create);

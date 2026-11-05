@@ -84,6 +84,7 @@ export const createApp = () => {
         hairTest: ['/HairTest/submit_form', '/HairTest/hair_test', '/HairTest/get_treatment_history/:reference_no'],
         review: ['/Review/review_get'],
         videos: ['/api/v1/videos'],
+        categories: ['/api/v1/categories', '/api/v1/categories/products', '/api/v1/categories/videos', '/api/v1/categories/services'],
         products: ['/api/v1/products', '/api/v1/products/:id'],
         media: ['/api/v1/media/upload'],
         notifications: ['/api/v1/notifications', '/api/v1/notifications/device-tokens'],
@@ -214,6 +215,8 @@ export const createApp = () => {
   app.use('/api/v1/notifications', container.routers.notificationRouter);
   app.use('/api/v1/media', container.routers.mediaRouter);
   app.use('/api/v1/videos', container.routers.videoPublicRouter);
+  app.use('/api/v1/categories', container.routers.categoryRouter);
+  app.use('/categories', container.routers.categoryRouter);
   app.use('/api/v1/products', container.routers.productPublicRouter);
   app.use('/products', container.routers.productPublicRouter);
   app.use('/api/v1/admin/products', container.routers.productAdminRouter);
@@ -224,6 +227,7 @@ export const createApp = () => {
   app.use('/api/v1/patient/addresses', container.routers.patientAddressRouter);
   app.use('/api/v1/patient/orders', container.routers.patientOrderRouter);
   app.use('/api/v1/admin/orders', container.routers.adminOrderRouter);
+  app.use('/api/v1/admin/coupons', container.routers.adminCouponRouter);
   app.use('/api/v1/admin', container.routers.adminRouter);
   app.use('/api/v1/patient', container.routers.patientClinicalRouter);
   app.use('/api/v1/support', container.routers.supportRouter);

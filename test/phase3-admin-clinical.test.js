@@ -86,8 +86,8 @@ describe('Phase 3: Admin Clinical Operations & Concurrency', () => {
     });
 
     it('rejects rescheduling to a slot that is already occupied by another patient', async () => {
-      const slotA = getFutureSlot(11, '10:30:00');
-      const slotB = getFutureSlot(11, '11:00:00');
+      const slotA = getFutureSlot(21, '10:30:00');
+      const slotB = getFutureSlot(21, '11:00:00');
 
       const apptA = await appointmentRepository.create({
         userId: testPatient.id,

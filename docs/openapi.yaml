@@ -1070,6 +1070,25 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
 
+  /api/v1/categories:
+    get:
+      tags: [Content, Commerce]
+      summary: Retrieve all platform categories (products, videos, services, concerns)
+      parameters:
+        - name: type
+          in: query
+          description: Optional category filter type (products, videos, services, concerns)
+          schema: { type: string, enum: [products, videos, services, concerns, all] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
+  /api/v1/products/categories:
+    get:
+      tags: [Commerce]
+      summary: Retrieve product and clinical root cause categories
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+
   /api/v1/products:
     get:
       tags: [Commerce]

@@ -92,12 +92,13 @@ export class Cart {
   }
 
   addItem(cartItem) {
-    const existingIndex = this.items.findIndex((item) => item.id === cartItem.id);
+    const item = cartItem instanceof CartItem ? cartItem : new CartItem(cartItem);
+    const existingIndex = this.items.findIndex((it) => it.id === item.id);
     if (existingIndex >= 0) {
-      const nextQuantity = Math.min(10, this.items[existingIndex].quantity + cartItem.quantity);
+      const nextQuantity = Math.min(10, this.items[existingIndex].quantity + item.quantity);
       this.items[existingIndex].quantity = nextQuantity;
     } else {
-      this.items.push(cartItem);
+      this.items.push(item);
     }
     this.updated_at = new Date().toISOString();
     this._revalidateCoupon();

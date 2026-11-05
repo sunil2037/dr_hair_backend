@@ -6,6 +6,7 @@ export class CommerceController {
     addressRepository,
     inventoryRepository,
     orderRepository,
+    couponRepository,
     checkoutUseCase,
     verifyPaymentUseCase,
     cancelOrderUseCase,
@@ -16,6 +17,7 @@ export class CommerceController {
     this.addressRepository = addressRepository;
     this.inventoryRepository = inventoryRepository;
     this.orderRepository = orderRepository;
+    this.couponRepository = couponRepository;
     this.checkoutUseCase = checkoutUseCase;
     this.verifyPaymentUseCase = verifyPaymentUseCase;
     this.cancelOrderUseCase = cancelOrderUseCase;
@@ -365,6 +367,46 @@ export class CommerceController {
 
       const ledger = await this.inventoryRepository.listLedger({ productId, page, limit });
       return sendSuccess(res, ledger, 'Inventory movement ledger retrieved');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // --- COUPONS ---
+  async listCoupons(req, res, next) {
+    try {
+      const { status, page, limit } = req.query;
+      const result = await this.couponRepository.list({ status, page, limit });
+      return sendSuccess(res, result, 'Coupons retrieved');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async createCoupon(req, res, next) {
+    try {
+      const coupon = await this.couponRepository.create(req.body);
+      return sendCreated(res, coupon, `Coupon ${coupon.code} created`);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updateCoupon(req, res, next) {
+    try {
+      const { id } = req.params;
+      const coupon = await this.couponRepository.update(id, req.body);
+      return sendSuccess(res, coupon, `Coupon ${coupon.code} updated`);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteCoupon(req, res, next) {
+    try {
+      const { id } = req.params;
+      await this.couponRepository.delete(id);
+      return sendSuccess(res, { id }, 'Coupon deleted successfully');
     } catch (err) {
       next(err);
     }

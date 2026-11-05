@@ -7,13 +7,27 @@ export class ProductController {
     createProductUseCase,
     updateProductUseCase,
     deleteProductUseCase,
+    listCategoriesUseCase,
   }) {
     this.listProductsUseCase = listProductsUseCase;
     this.getProductByIdUseCase = getProductByIdUseCase;
     this.createProductUseCase = createProductUseCase;
     this.updateProductUseCase = updateProductUseCase;
     this.deleteProductUseCase = deleteProductUseCase;
+    this.listCategoriesUseCase = listCategoriesUseCase;
   }
+
+  listCategories = async (req, res, next) => {
+    try {
+      if (this.listCategoriesUseCase) {
+        const result = await this.listCategoriesUseCase.execute({ type: 'products' });
+        return sendSuccess(res, result.products || [], 'Product categories retrieved successfully.');
+      }
+      return sendSuccess(res, [], 'Product categories retrieved successfully.');
+    } catch (error) {
+      next(error);
+    }
+  };
 
   list = async (req, res, next) => {
     try {
