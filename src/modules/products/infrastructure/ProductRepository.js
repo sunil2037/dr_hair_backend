@@ -138,7 +138,20 @@ export class ProductRepository extends IProductRepository {
 
   async create(productData) {
     if (isMongoConnected()) {
-      return ProductModel.create(productData);
+      try {
+        return await ProductModel.create(productData);
+      } catch (err) {
+        if (err?.code === 11000) {
+          const uniqueSuffix = '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+          const uniqueData = {
+            ...productData,
+            id: (productData.id || `prd-${Date.now()}`) + uniqueSuffix.toLowerCase(),
+            sku: (productData.sku && productData.sku !== 'DRH-NEW' ? productData.sku : 'DRH') + uniqueSuffix,
+          };
+          return await ProductModel.create(uniqueData);
+        }
+        throw err;
+      }
     }
 
     if (!Array.isArray(store.products)) store.products = [];

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../../../shared/middlewares/auth.middleware.js';
-import { requireSuperAdmin } from '../../../shared/middlewares/admin.middleware.js';
+import { requireAnyPermission } from '../../../shared/middlewares/admin.middleware.js';
 
 export function createProductRouters({ productController }) {
   const publicRouter = Router();
@@ -9,7 +9,7 @@ export function createProductRouters({ productController }) {
   publicRouter.get('/:id', productController.getById);
 
   const adminRouter = Router();
-  adminRouter.use(authenticateToken, requireSuperAdmin);
+  adminRouter.use(authenticateToken, requireAnyPermission('products.manage', 'super_admin'));
   adminRouter.get('/categories', productController.listCategories);
   adminRouter.get('/', productController.listAdmin);
   adminRouter.get('/:id', productController.getById);

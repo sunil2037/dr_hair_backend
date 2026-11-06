@@ -80,6 +80,10 @@ export class Product {
 
     const primaryRootCause = rootCauses[0] || 'Hair';
 
+    const autoSku = payload.sku && payload.sku !== 'DRH-NEW'
+      ? payload.sku.trim().toUpperCase()
+      : `DRH-${Math.floor(1000 + Math.random() * 9000)}`;
+
     const rawPlans = payload.supply_plans || payload.supplyPlans || [];
     const supplyPlans = Array.isArray(rawPlans) && rawPlans.length > 0
       ? rawPlans.map((plan, idx) => ({
@@ -89,7 +93,7 @@ export class Product {
           price: Number(plan.price) || price,
           mrp: Number(plan.mrp || plan.compareAtPrice) || Number(payload.compare_at_price || payload.compareAtPrice) || price,
           badge: plan.badge || '',
-          sku: plan.sku || `${payload.sku || 'DRH'}-${idx + 1}`,
+          sku: (plan.sku && plan.sku !== 'DRH-NEW' ? plan.sku : `${autoSku}-${idx + 1}`).trim().toUpperCase(),
         }))
       : [
           {
@@ -99,7 +103,7 @@ export class Product {
             price,
             mrp: Number(payload.compare_at_price || payload.compareAtPrice) || price,
             badge: '',
-            sku: payload.sku || 'DRH-001',
+            sku: autoSku,
           },
         ];
 
@@ -130,7 +134,7 @@ export class Product {
       category,
       root_cause: primaryRootCause,
       root_causes: rootCauses,
-      sku: payload.sku || `DRH-${Date.now().toString().slice(-4)}`,
+      sku: (payload.sku && payload.sku !== 'DRH-NEW') ? payload.sku.trim().toUpperCase() : autoSku,
       rating: Number(payload.rating) || 4.8,
       reviews_count: Number(payload.reviews_count || payload.reviewsCount) || 0,
       in_stock: payload.in_stock !== false && payload.inStock !== false && payload.status !== 'Draft',
