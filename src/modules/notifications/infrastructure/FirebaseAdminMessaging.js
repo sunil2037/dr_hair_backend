@@ -48,6 +48,12 @@ export const sendPushNotification = async ({
     normalizedData.imageUrl = String(finalImageUrl);
   }
 
+  const pushData = {
+    ...normalizedData,
+    title: String(title || ''),
+    body: String(body || ''),
+  };
+
   const messaging = getFirebaseMessaging();
   if (!messaging || token.startsWith('mock-') || process.env.NODE_ENV === 'test') {
     // Graceful fallback for test or dev environments where FCM service account is not yet configured,
@@ -59,7 +65,7 @@ export const sendPushNotification = async ({
       title,
       body,
       imageUrl: finalImageUrl,
-      data: normalizedData,
+      data: pushData,
     };
   }
 
@@ -73,10 +79,12 @@ export const sendPushNotification = async ({
     android: {
       priority: 'high',
       notification: {
+        icon: 'ic_launcher',
         channelId: 'high_importance_channel',
         priority: 'high',
         defaultSound: true,
         defaultVibrateTimings: true,
+        visibility: 'public',
         ...(finalImageUrl ? { imageUrl: finalImageUrl } : {}),
       },
     },
@@ -96,6 +104,6 @@ export const sendPushNotification = async ({
         },
       },
     },
-    ...(Object.keys(normalizedData).length > 0 ? { data: normalizedData } : {}),
+    ...(Object.keys(pushData).length > 0 ? { data: pushData } : {}),
   });
 };
