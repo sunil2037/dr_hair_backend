@@ -29,6 +29,8 @@ export const sendPushNotification = async ({
   token,
   title,
   body,
+  imageUrl,
+  image,
   data = {},
 }) => {
   if (!token) throw new Error('A Firebase device token is required.');
@@ -36,9 +38,15 @@ export const sendPushNotification = async ({
     throw new Error('A notification title or body is required.');
   }
 
+  const finalImageUrl = imageUrl || image || data.image_url || data.imageUrl || null;
+
   const normalizedData = Object.fromEntries(
     Object.entries(data).map(([key, value]) => [key, String(value)]),
   );
+  if (finalImageUrl) {
+    normalizedData.image_url = String(finalImageUrl);
+    normalizedData.imageUrl = String(finalImageUrl);
+  }
 
   const messaging = getFirebaseMessaging();
   if (!messaging || token.startsWith('mock-') || process.env.NODE_ENV === 'test') {
@@ -50,13 +58,18 @@ export const sendPushNotification = async ({
       recipient: token,
       title,
       body,
+      imageUrl: finalImageUrl,
       data: normalizedData,
     };
   }
 
   return messaging.send({
     token,
-    notification: { title, body },
+    notification: {
+      title,
+      body,
+      ...(finalImageUrl ? { imageUrl: finalImageUrl } : {}),
+    },
     android: {
       priority: 'high',
       notification: {
@@ -64,17 +77,22 @@ export const sendPushNotification = async ({
         priority: 'high',
         defaultSound: true,
         defaultVibrateTimings: true,
+        ...(finalImageUrl ? { imageUrl: finalImageUrl } : {}),
       },
     },
     apns: {
       headers: {
         'apns-priority': '10',
       },
+      fcmOptions: {
+        ...(finalImageUrl ? { image: finalImageUrl } : {}),
+      },
       payload: {
         aps: {
           alert: { title, body },
           sound: 'default',
           badge: 1,
+          'mutable-content': 1,
         },
       },
     },

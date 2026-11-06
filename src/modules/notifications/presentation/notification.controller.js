@@ -102,6 +102,7 @@ export class NotificationController {
     try {
       const userId = Number(req.body?.user_id);
       const { title, body, type = 'general', destination = {}, data = {} } = req.body || {};
+      const imageUrl = req.body?.image_url || req.body?.imageUrl || req.body?.image || null;
       if (!Number.isInteger(userId) || userId <= 0) throw new BadRequestError('A valid user_id is required.');
       if (typeof title !== 'string' || !title.trim() || title.length > 120) {
         throw new BadRequestError('Notification title is required and must be at most 120 characters.');
@@ -128,6 +129,7 @@ export class NotificationController {
           body: body.trim(),
           type,
           destination: dest,
+          imageUrl,
           data,
         });
       }
@@ -139,6 +141,7 @@ export class NotificationController {
         destination_type: dest.type,
         ...(dest.screen ? { screen: dest.screen } : {}),
         ...(dest.entityId ? { entity_id: dest.entityId } : {}),
+        ...(imageUrl ? { image_url: imageUrl, imageUrl } : {}),
       };
 
       let sent = 0;
@@ -148,7 +151,13 @@ export class NotificationController {
         const results = await Promise.all(
           tokens.map(async ({ token }) => {
             try {
-              await sendPushNotification({ token, title: title.trim(), body: body.trim(), data: pushData });
+              await sendPushNotification({
+                token,
+                title: title.trim(),
+                body: body.trim(),
+                imageUrl,
+                data: pushData,
+              });
               return { token, ok: true };
             } catch (error) {
               const invalidCodes = new Set([
@@ -203,6 +212,7 @@ export class NotificationController {
         scheduled_at = null,
         scheduledAt = null,
       } = req.body || {};
+      const imageUrl = req.body?.image_url || req.body?.imageUrl || req.body?.image || null;
 
       if (typeof title !== 'string' || !title.trim() || title.length > 120) {
         throw new BadRequestError('Notification title is required and must be at most 120 characters.');
@@ -232,6 +242,7 @@ export class NotificationController {
           body: body.trim(),
           audience,
           destination: dest,
+          imageUrl,
           scheduledAt: isFutureSchedule ? targetDate : null,
           createdBy: actor,
           targetCount,
@@ -271,6 +282,7 @@ export class NotificationController {
           body: body.trim(),
           type,
           destination: dest,
+          imageUrl,
           data,
         });
       }
@@ -282,6 +294,7 @@ export class NotificationController {
         destination_type: dest.type,
         ...(dest.screen ? { screen: dest.screen } : {}),
         ...(dest.entityId ? { entity_id: dest.entityId } : {}),
+        ...(imageUrl ? { image_url: imageUrl, imageUrl } : {}),
       };
 
       let sent = 0;
@@ -292,7 +305,13 @@ export class NotificationController {
         const results = await Promise.all(
           targetTokens.map(async ({ token }) => {
             try {
-              await sendPushNotification({ token, title: title.trim(), body: body.trim(), data: pushData });
+              await sendPushNotification({
+                token,
+                title: title.trim(),
+                body: body.trim(),
+                imageUrl,
+                data: pushData,
+              });
               return { token, ok: true };
             } catch (error) {
               const invalidCodes = new Set([

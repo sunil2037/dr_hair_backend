@@ -357,6 +357,7 @@ const notificationSchema = new Schema(
       screen: { type: String, default: null },
       entityId: { type: String, default: null },
     },
+    imageUrl: { type: String, default: null },
     data: { type: Schema.Types.Mixed, default: {} },
     isRead: { type: Boolean, default: false, index: true },
     readAt: { type: Date, default: null },
@@ -654,6 +655,7 @@ const notificationCampaignSchema = new Schema(
       screen: { type: String, default: 'home' },
       entityId: { type: String, default: null },
     },
+    imageUrl: { type: String, default: null },
     status: {
       type: String,
       enum: ['draft', 'scheduled', 'processing', 'sent', 'partial', 'failed', 'cancelled'],

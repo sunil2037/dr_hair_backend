@@ -69,9 +69,11 @@ export class CampaignSchedulerService {
                 token,
                 title: campaign.title,
                 body: campaign.body,
+                imageUrl: campaign.imageUrl,
                 data: {
                   ...pushData,
                   notification_id: inboxNotification?.id || '',
+                  ...(campaign.imageUrl ? { image_url: campaign.imageUrl, imageUrl: campaign.imageUrl } : {}),
                 },
               });
               return { token, ok: true };

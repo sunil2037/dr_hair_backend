@@ -9,10 +9,12 @@ export class NotificationRepository {
     body,
     type = 'general',
     destination = { type: 'screen', screen: 'home' },
+    imageUrl = null,
     data = {},
   }) {
     const now = new Date();
     const id = `ntf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const cleanImageUrl = imageUrl && typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? imageUrl.trim() : null;
     const record = {
       id,
       userId: userId !== null && userId !== undefined ? Number(userId) : null,
@@ -24,6 +26,7 @@ export class NotificationRepository {
         screen: destination?.screen || null,
         entityId: destination?.entityId || null,
       },
+      imageUrl: cleanImageUrl,
       data: data || {},
       isRead: false,
       readAt: null,

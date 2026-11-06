@@ -8,6 +8,7 @@ export class CampaignRepository {
     body,
     audience = 'All app users',
     destination = { type: 'screen', screen: 'home', entityId: null },
+    imageUrl = null,
     scheduledAt = null,
     createdBy = 'Super Admin',
     targetCount = 0,
@@ -17,6 +18,7 @@ export class CampaignRepository {
     const id = `cmp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const parsedScheduled = scheduledAt ? new Date(scheduledAt) : null;
     const initialStatus = status || (parsedScheduled ? 'scheduled' : 'draft');
+    const cleanImageUrl = imageUrl && typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? imageUrl.trim() : null;
 
     const record = {
       id,
@@ -28,6 +30,7 @@ export class CampaignRepository {
         screen: destination?.screen || 'home',
         entityId: destination?.entityId || null,
       },
+      imageUrl: cleanImageUrl,
       status: initialStatus,
       scheduledAt: parsedScheduled,
       sentAt: null,
