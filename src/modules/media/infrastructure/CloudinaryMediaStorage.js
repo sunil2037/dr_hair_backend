@@ -81,6 +81,9 @@ export class CloudinaryMediaStorage {
           folder,
           overwrite: false,
           unique_filename: true,
+          timeout: 60000,
+          quality: 'auto:good',
+          fetch_format: 'auto',
         },
         (error, result) => {
           if (error) return finish(error);

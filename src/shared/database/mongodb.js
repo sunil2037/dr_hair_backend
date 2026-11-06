@@ -30,11 +30,13 @@ export const connectDatabase = async () => {
     try {
       await mongoose.connect(uri, {
         serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
         socketTimeoutMS: 45000,
-        maxPoolSize: 10,
+        maxPoolSize: 20,
+        minPoolSize: 1,
+        maxIdleTimeMS: 30000,
         appName: 'dr-hair-backend',
       });
-      await RateLimitCounterModel.init().catch(() => {});
       logger.info('MongoDB Atlas connection established.');
       return true;
     } catch (err) {

@@ -28,26 +28,33 @@ export const createMediaRouter = ({ mediaController }) => {
   router.post(
     '/upload',
     authenticateToken,
-    (req, res, next) => req.user?.role === 'super_admin'
-      ? next()
-      : req.user?.role === 'admin'
-        ? requireAnyPermission('products.manage', 'content.manage')(req, res, next)
-        : requireRegisteredUser(req, res, next),
-    mediaUploadLimiter,
-    mediaUploadAccountLimiter,
-    uploadMediaFiles,
+    (req, res, next) => {
+      if (req.user?.role === 'super_admin' || req.user?.role === 'admin') {
+        return uploadMediaFiles(req, res, next);
+      }
+      return requireRegisteredUser(req, res, () => {
+        mediaUploadLimiter(req, res, () => {
+          mediaUploadAccountLimiter(req, res, () => {
+            uploadMediaFiles(req, res, next);
+          });
+        });
+      });
+    },
     mediaController.upload,
   );
   router.delete(
     '/',
     authenticateToken,
-    (req, res, next) => req.user?.role === 'super_admin'
-      ? next()
-      : req.user?.role === 'admin'
-        ? requireAnyPermission('products.manage', 'content.manage')(req, res, next)
-        : requireRegisteredUser(req, res, next),
-    mediaUploadLimiter,
-    mediaUploadAccountLimiter,
+    (req, res, next) => {
+      if (req.user?.role === 'super_admin' || req.user?.role === 'admin') {
+        return next();
+      }
+      return requireRegisteredUser(req, res, () => {
+        mediaUploadLimiter(req, res, () => {
+          mediaUploadAccountLimiter(req, res, next);
+        });
+      });
+    },
     mediaController.remove,
   );
   return router;
