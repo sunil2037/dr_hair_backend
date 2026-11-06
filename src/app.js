@@ -217,6 +217,7 @@ export const createApp = () => {
   app.use('/api/v1/videos', container.routers.videoPublicRouter);
   app.use('/api/v1/categories', container.routers.categoryRouter);
   app.use('/categories', container.routers.categoryRouter);
+  app.use('/api/v1/admin/categories', container.routers.categoryRouter);
   app.use('/api/v1/products', container.routers.productPublicRouter);
   app.use('/products', container.routers.productPublicRouter);
   app.use('/api/v1/admin/products', container.routers.productAdminRouter);

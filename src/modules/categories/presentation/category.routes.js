@@ -9,6 +9,10 @@ export function createCategoryRouter({ categoryController }) {
   router.get('/services', categoryController.listServices);
   router.get('/concerns', categoryController.listConcerns);
 
+  router.post('/', categoryController.create);
+  router.put('/:id', categoryController.update);
+  router.patch('/:id', categoryController.update);
+  router.delete('/:id', categoryController.delete);
+
   return router;
 }
-

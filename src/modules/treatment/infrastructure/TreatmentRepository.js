@@ -198,5 +198,86 @@ export class TreatmentRepository extends ITreatmentRepository {
     }
     return [];
   }
+
+  async getReminders(userId) {
+    const numericId = Number(userId);
+    if (isMongoConnected()) {
+      const treatment = await TreatmentModel.findOne({ userId: numericId }).sort({ date: -1, id: -1 }).lean();
+      return treatment?.care_reminders || [];
+    }
+    const treatment = store.treatments.find((t) => Number(t.userId) === numericId);
+    return treatment?.care_reminders || [];
+  }
+
+  async saveReminder(userId, reminder) {
+    const numericId = Number(userId);
+    if (isMongoConnected()) {
+      let treatment = await TreatmentModel.findOne({ userId: numericId }).sort({ date: -1, id: -1 });
+      if (treatment) {
+        const existing = Array.isArray(treatment.care_reminders) ? [...treatment.care_reminders] : [];
+        const idx = existing.findIndex((r) => r.id === reminder.id);
+        if (idx >= 0) {
+          existing[idx] = reminder;
+        } else {
+          existing.push(reminder);
+        }
+        treatment.care_reminders = existing;
+        await treatment.save();
+        return treatment.care_reminders;
+      }
+      const created = await TreatmentModel.create({
+        id: await nextId('treatments'),
+        userId: numericId,
+        treatment_name: 'Personalized Care Reminders',
+        care_reminders: [reminder],
+        date: new Date().toISOString().split('T')[0],
+      });
+      return created.care_reminders;
+    }
+
+    let treatment = store.treatments.find((t) => Number(t.userId) === numericId);
+    if (treatment) {
+      if (!Array.isArray(treatment.care_reminders)) {
+        treatment.care_reminders = [];
+      }
+      const idx = treatment.care_reminders.findIndex((r) => r.id === reminder.id);
+      if (idx >= 0) {
+        treatment.care_reminders[idx] = reminder;
+      } else {
+        treatment.care_reminders.push(reminder);
+      }
+      return treatment.care_reminders;
+    }
+    const newId = store.treatments.length > 0 ? Math.max(...store.treatments.map((t) => t.id)) + 1 : 1;
+    const newRecord = {
+      id: newId,
+      userId: numericId,
+      treatment_name: 'Personalized Care Reminders',
+      care_reminders: [reminder],
+      date: new Date().toISOString().split('T')[0],
+    };
+    store.treatments.push(newRecord);
+    return newRecord.care_reminders;
+  }
+
+  async deleteReminder(userId, reminderId) {
+    const numericId = Number(userId);
+    const searchId = String(reminderId).trim();
+    if (isMongoConnected()) {
+      let treatment = await TreatmentModel.findOne({ userId: numericId }).sort({ date: -1, id: -1 });
+      if (treatment && Array.isArray(treatment.care_reminders)) {
+        treatment.care_reminders = treatment.care_reminders.filter((r) => r.id !== searchId);
+        await treatment.save();
+        return treatment.care_reminders;
+      }
+      return [];
+    }
+    let treatment = store.treatments.find((t) => Number(t.userId) === numericId);
+    if (treatment && Array.isArray(treatment.care_reminders)) {
+      treatment.care_reminders = treatment.care_reminders.filter((r) => r.id !== searchId);
+      return treatment.care_reminders;
+    }
+    return [];
+  }
 }
 

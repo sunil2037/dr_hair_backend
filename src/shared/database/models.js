@@ -137,6 +137,25 @@ const dietMealSchema = new Schema(
   { _id: false, strict: true },
 );
 
+const careReminderSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    title: { type: String, required: true, trim: true },
+    subtitle: { type: String, default: '', trim: true },
+    time: { type: String, default: '20:00' },
+    hour: { type: Number, default: 20 },
+    minute: { type: Number, default: 0 },
+    isEnabled: { type: Boolean, default: true },
+    frequency: { type: String, default: 'Daily' },
+    treatmentType: { type: String, default: 'Topical Serum' },
+    repeatDays: { type: [Number], default: [1, 2, 3, 4, 5, 6, 7] },
+    isCompleted: { type: Boolean, default: false },
+    notes: { type: String, default: '', trim: true },
+    snoozedUntil: { type: Date, default: null },
+  },
+  { _id: false, strict: false },
+);
+
 const treatmentSchema = new Schema(
   {
     id: { type: Number, required: true, unique: true, index: true },
@@ -153,6 +172,7 @@ const treatmentSchema = new Schema(
     next_review_date: { type: String, default: '' },
     routine_steps: { type: [careRoutineStepSchema], default: [] },
     diet_meals: { type: [dietMealSchema], default: [] },
+    care_reminders: { type: [careReminderSchema], default: [] },
     date: { type: String, default: () => new Date().toISOString().slice(0, 10) },
   },
   { collection: 'treatments', strict: false, versionKey: false },
@@ -766,11 +786,30 @@ const couponSchema = new Schema(
   { collection: 'coupons', versionKey: false },
 );
 
+const categorySchema = new Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    slug: { type: String, required: true, trim: true },
+    type: { type: String, required: true, enum: ['video', 'product', 'service', 'concern'], default: 'video' },
+    icon: { type: String, default: 'film', trim: true },
+    badge: { type: String, default: null, trim: true },
+    description: { type: String, default: '', trim: true },
+    status: { type: String, enum: ['active', 'inactive'], default: 'active' },
+    display_order: { type: Number, default: 0 },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now },
+  },
+  { collection: 'categories', versionKey: false },
+);
+categorySchema.index({ type: 1, status: 1 });
+categorySchema.index({ slug: 1, type: 1 });
+
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);
 export const AdminAccountModel = mongoose.models.DrHairAdminAccount || mongoose.model('DrHairAdminAccount', adminAccountSchema);
 export const OtpModel = mongoose.models.DrHairOtp || mongoose.model('DrHairOtp', otpSchema);
 export const SupportInquiryModel = mongoose.models.DrHairSupportInquiry || mongoose.model('DrHairSupportInquiry', supportInquirySchema);
 export const CouponModel = mongoose.models.DrHairCoupon || mongoose.model('DrHairCoupon', couponSchema);
+export const CategoryModel = mongoose.models.DrHairCategory || mongoose.model('DrHairCategory', categorySchema);
 export const HairTestModel = mongoose.models.DrHairHairTest || mongoose.model('DrHairHairTest', hairTestSchema);
 export const HairTestDraftModel = mongoose.models.DrHairHairTestDraft || mongoose.model('DrHairHairTestDraft', hairTestDraftSchema);
 export const TreatmentModel = mongoose.models.DrHairTreatment || mongoose.model('DrHairTreatment', treatmentSchema);

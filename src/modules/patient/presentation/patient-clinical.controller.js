@@ -359,4 +359,85 @@ export class PatientClinicalController {
       next(error);
     }
   };
+
+  getReminders = async (req, res, next) => {
+    try {
+      const userId = Number(req.user.id);
+      const reminders = this.treatmentRepository?.getReminders
+        ? await this.treatmentRepository.getReminders(userId)
+        : [];
+      return sendSuccess(res, {
+        data: {
+          reminders,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  saveReminder = async (req, res, next) => {
+    try {
+      const userId = Number(req.user.id);
+      const body = req.body || {};
+      const title = typeof body.title === 'string' ? body.title.trim() : '';
+      if (!title) {
+        throw new BadRequestError('Care reminder title is required.');
+      }
+
+      const reminder = {
+        id: String(body.id || `rem_${Date.now()}`),
+        title: title.slice(0, 150),
+        subtitle: typeof body.subtitle === 'string' ? body.subtitle.trim().slice(0, 300) : '',
+        time: typeof body.time === 'string' ? body.time.trim().slice(0, 20) : '20:00',
+        hour: typeof body.hour === 'number' ? body.hour : 20,
+        minute: typeof body.minute === 'number' ? body.minute : 0,
+        isEnabled: body.isEnabled !== false,
+        frequency: typeof body.frequency === 'string' ? body.frequency.trim().slice(0, 50) : 'Daily',
+        treatmentType: typeof body.treatmentType === 'string' ? body.treatmentType.trim().slice(0, 80) : 'Topical Serum',
+        repeatDays: Array.isArray(body.repeatDays) ? body.repeatDays.map(Number).filter((d) => d >= 1 && d <= 7) : [1, 2, 3, 4, 5, 6, 7],
+        isCompleted: Boolean(body.isCompleted),
+        notes: typeof body.notes === 'string' ? body.notes.trim().slice(0, 500) : '',
+        snoozedUntil: body.snoozedUntil || null,
+      };
+
+      const updated = this.treatmentRepository?.saveReminder
+        ? await this.treatmentRepository.saveReminder(userId, reminder)
+        : [reminder];
+
+      return sendSuccess(res, {
+        message: 'Care reminder saved successfully.',
+        statusCode: 200,
+        data: {
+          reminder,
+          reminders: updated,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteReminder = async (req, res, next) => {
+    try {
+      const userId = Number(req.user.id);
+      const reminderId = String(req.params.reminderId || '').trim();
+      if (!reminderId) {
+        throw new BadRequestError('A valid reminder ID is required.');
+      }
+
+      const updated = this.treatmentRepository?.deleteReminder
+        ? await this.treatmentRepository.deleteReminder(userId, reminderId)
+        : [];
+
+      return sendSuccess(res, {
+        message: 'Care reminder removed.',
+        data: {
+          reminders: updated,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

@@ -22,6 +22,10 @@ export const createPatientClinicalRouter = ({ patientClinicalController, appoint
   router.get('/routine-steps', patientClinicalController.getRoutineSteps);
   router.post('/routine-steps', patientClinicalController.addRoutineStep);
   router.delete('/routine-steps/:stepIndex', patientClinicalController.deleteRoutineStep);
+  router.get('/reminders', patientClinicalController.getReminders);
+  router.post('/reminders', patientClinicalController.saveReminder);
+  router.put('/reminders/:reminderId', patientClinicalController.saveReminder);
+  router.delete('/reminders/:reminderId', patientClinicalController.deleteReminder);
   router.get('/assessment/draft', patientClinicalController.getAssessmentDraft);
   router.put('/assessment/draft', patientClinicalController.saveAssessmentDraft);
   router.delete('/assessment/draft', patientClinicalController.deleteAssessmentDraft);

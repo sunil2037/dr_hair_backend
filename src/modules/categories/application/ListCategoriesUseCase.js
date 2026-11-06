@@ -1,16 +1,19 @@
 import { isMongoConnected } from '../../../shared/database/mongodb.js';
 import { ProductModel, VideoModel } from '../../../shared/database/models.js';
 import { store } from '../../../shared/database/store.js';
+import { CategoryRepository } from '../infrastructure/CategoryRepository.js';
 
 export class ListCategoriesUseCase {
-  constructor({ productRepository, videoRepository } = {}) {
+  constructor({ productRepository, videoRepository, categoryRepository } = {}) {
     this.productRepository = productRepository;
     this.videoRepository = videoRepository;
+    this.categoryRepository = categoryRepository || new CategoryRepository();
   }
 
   async execute({ type } = {}) {
     const productCounts = await this._getProductCounts();
     const videoCounts = await this._getVideoCounts();
+    const videoCategories = await this._getVideoCategories(videoCounts);
 
     const productCategories = [
       {
@@ -92,49 +95,6 @@ export class ListCategoriesUseCase {
         badge: null,
         description: 'Endocrine stabilization for root-cause recovery',
         item_count: productCounts.hormone || 0,
-      },
-    ];
-
-    const videoCategories = [
-      {
-        id: 'all',
-        name: 'All Stories',
-        slug: 'all',
-        type: 'video',
-        icon: 'film',
-        item_count: videoCounts.total || 0,
-      },
-      {
-        id: 'hair_fall',
-        name: 'Hair Fall',
-        slug: 'hair-fall',
-        type: 'video',
-        icon: 'sparkles',
-        item_count: videoCounts.hair_fall || 0,
-      },
-      {
-        id: 'regrowth',
-        name: 'Regrowth',
-        slug: 'regrowth',
-        type: 'video',
-        icon: 'trending-up',
-        item_count: videoCounts.regrowth || 0,
-      },
-      {
-        id: 'dandruff',
-        name: 'Dandruff',
-        slug: 'dandruff',
-        type: 'video',
-        icon: 'shield-check',
-        item_count: videoCounts.dandruff || 0,
-      },
-      {
-        id: 'doctor_advice',
-        name: 'Doctor Advice',
-        slug: 'doctor-advice',
-        type: 'video',
-        icon: 'stethoscope',
-        item_count: videoCounts.doctor_advice || 0,
       },
     ];
 
@@ -334,6 +294,102 @@ export class ListCategoriesUseCase {
     } catch (_) {}
 
     return counts;
+  }
+
+  async _getVideoCategories(videoCounts = {}) {
+    let storedCategories = [];
+    try {
+      storedCategories = await this.categoryRepository.list({ type: 'video', status: 'active' });
+    } catch (_) {}
+
+    if (!storedCategories || storedCategories.length === 0) {
+      const defaults = [
+        { name: 'Hair Fall', slug: 'hair-fall', icon: 'sparkles' },
+        { name: 'Regrowth', slug: 'regrowth', icon: 'trending-up' },
+        { name: 'Dandruff', slug: 'dandruff', icon: 'shield-check' },
+        { name: 'Doctor Advice', slug: 'doctor-advice', icon: 'stethoscope' },
+        { name: 'Scalp Care', slug: 'scalp-care', icon: 'sparkles' },
+      ];
+      for (const def of defaults) {
+        try {
+          const created = await this.categoryRepository.create({ ...def, type: 'video' });
+          if (created) storedCategories.push(created);
+        } catch (_) {}
+      }
+    }
+
+    let publishedVideos = [];
+    try {
+      if (isMongoConnected()) {
+        publishedVideos = await VideoModel.find({ status: 'published' }).select('category tag author_name').lean();
+      } else {
+        publishedVideos = Array.isArray(store.videos) ? store.videos.filter((v) => v.status === 'published') : [];
+      }
+    } catch (_) {}
+
+    const knownSlugs = new Set(storedCategories.map((c) => (c.slug || '').toLowerCase()));
+    const knownNames = new Set(storedCategories.map((c) => (c.name || '').toLowerCase()));
+
+    for (const v of publishedVideos) {
+      const cat = (v.category || '').trim();
+      if (cat && cat.toLowerCase() !== 'all' && !knownNames.has(cat.toLowerCase())) {
+        const slug = cat.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        if (slug && !knownSlugs.has(slug)) {
+          knownSlugs.add(slug);
+          knownNames.add(cat.toLowerCase());
+          storedCategories.push({
+            id: slug.replace(/-/g, '_'),
+            name: cat,
+            slug,
+            type: 'video',
+            icon: 'film',
+            status: 'active',
+          });
+        }
+      }
+    }
+
+    const videoCategories = [
+      {
+        id: 'all',
+        name: 'All Stories',
+        slug: 'all',
+        type: 'video',
+        icon: 'film',
+        item_count: videoCounts.total || publishedVideos.length || 0,
+      },
+    ];
+
+    for (const cat of storedCategories) {
+      const slugKey = (cat.slug || '').replace(/-/g, '_');
+      const count =
+        videoCounts[slugKey] ??
+        publishedVideos.filter((v) => {
+          const catStr = `${v.category || ''} ${v.tag || ''}`.toLowerCase();
+          return catStr.includes(cat.name.toLowerCase()) || catStr.includes(cat.slug.toLowerCase());
+        }).length;
+
+      const formattedId =
+        slugKey === 'hair_fall' || slugKey === 'doctor_advice'
+          ? slugKey
+          : cat.id?.startsWith('cat_')
+            ? slugKey
+            : cat.id || slugKey;
+
+      videoCategories.push({
+        id: formattedId,
+        raw_id: cat._id || cat.id,
+        name: cat.name,
+        slug: cat.slug,
+        type: 'video',
+        icon: cat.icon || 'film',
+        badge: cat.badge || null,
+        description: cat.description || '',
+        item_count: count,
+      });
+    }
+
+    return videoCategories;
   }
 }
 

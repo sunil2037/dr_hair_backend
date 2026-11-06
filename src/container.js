@@ -59,6 +59,7 @@ import { CreateProductUseCase } from './modules/products/application/CreateProdu
 import { UpdateProductUseCase } from './modules/products/application/UpdateProductUseCase.js';
 import { DeleteProductUseCase } from './modules/products/application/DeleteProductUseCase.js';
 import { ListCategoriesUseCase } from './modules/categories/application/ListCategoriesUseCase.js';
+import { CategoryRepository } from './modules/categories/infrastructure/CategoryRepository.js';
 import { CategoryController } from './modules/categories/presentation/category.controller.js';
 import { createCategoryRouter } from './modules/categories/presentation/category.routes.js';
 import { GetCartUseCase } from './modules/cart/application/GetCartUseCase.js';
@@ -134,6 +135,7 @@ export const createContainer = (overrides = {}) => {
   const notificationRepository = overrides.notificationRepository || new NotificationRepository();
   const videoRepository = overrides.videoRepository || new VideoRepository();
   const productRepository = overrides.productRepository || new ProductRepository();
+  const categoryRepository = overrides.categoryRepository || new CategoryRepository();
   const cartRepository = overrides.cartRepository || new CartRepository();
   const adminAccountRepository = overrides.adminAccountRepository || new AdminAccountRepository();
   const clinicalReportRepository = overrides.clinicalReportRepository || new ClinicalReportRepository();
@@ -290,6 +292,7 @@ export const createContainer = (overrides = {}) => {
     new ListCategoriesUseCase({
       productRepository,
       videoRepository,
+      categoryRepository,
     });
   const getCartUseCase = new GetCartUseCase({ cartRepository });
   const addToCartUseCase = new AddToCartUseCase({ cartRepository, productRepository });
@@ -387,7 +390,7 @@ export const createContainer = (overrides = {}) => {
     auditEventRepository,
   });
   const contentController = new ContentController({ contentRepository, auditEventRepository });
-  const categoryController = new CategoryController({ listCategoriesUseCase });
+  const categoryController = new CategoryController({ listCategoriesUseCase, categoryRepository });
   const videoController = new VideoController({ videoRepository, listCategoriesUseCase });
   const productController = new ProductController({
     listProductsUseCase,

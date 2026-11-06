@@ -88,4 +88,83 @@ describe('Patient clinical record APIs', () => {
     assert.equal(deleteRes.body.data.routine_steps.length, 1);
     assert.equal(deleteRes.body.data.routine_steps[0].title, 'Scalp Dermarolling (0.5mm)');
   });
+
+  it('allows patients to retrieve, save, and delete care reminders via API', async () => {
+    let storedReminders = [
+      {
+        id: 'rem_1',
+        title: 'Morning Supplement',
+        subtitle: 'Biotin after breakfast',
+        time: '09:00',
+        hour: 9,
+        minute: 0,
+        isEnabled: true,
+        frequency: 'Daily',
+        treatmentType: 'Oral Supplement',
+        repeatDays: [1, 2, 3, 4, 5, 6, 7],
+      },
+    ];
+
+    const controller = new PatientClinicalController({
+      treatmentRepository: {
+        getReminders: async (userId) => storedReminders,
+        saveReminder: async (userId, reminder) => {
+          const idx = storedReminders.findIndex((r) => r.id === reminder.id);
+          if (idx >= 0) {
+            storedReminders[idx] = reminder;
+          } else {
+            storedReminders.push(reminder);
+          }
+          return storedReminders;
+        },
+        deleteReminder: async (userId, id) => {
+          storedReminders = storedReminders.filter((r) => r.id !== id);
+          return storedReminders;
+        },
+      },
+    });
+
+    // 1. GET /reminders
+    const getRes = recorder();
+    await controller.getReminders({ user: { id: 42 } }, getRes, (err) => { throw err; });
+    assert.equal(getRes.body.data.reminders.length, 1);
+    assert.equal(getRes.body.data.reminders[0].title, 'Morning Supplement');
+
+    // 2. POST /reminders (Create)
+    const addRes = recorder();
+    await controller.saveReminder(
+      {
+        user: { id: 42 },
+        body: {
+          id: 'rem_2',
+          title: 'Dr. Hair 5% Minoxidil Booster',
+          subtitle: 'Topical Serum · Daily',
+          time: '21:30',
+          hour: 21,
+          minute: 30,
+          isEnabled: true,
+          frequency: 'Daily',
+          treatmentType: 'Topical Serum',
+          repeatDays: [1, 2, 3, 4, 5, 6, 7],
+          notes: 'Apply 1ml with dropper onto dry crown',
+        },
+      },
+      addRes,
+      (err) => { throw err; },
+    );
+    assert.equal(addRes.statusCode, 200);
+    assert.equal(addRes.body.data.reminders.length, 2);
+    assert.equal(addRes.body.data.reminder.title, 'Dr. Hair 5% Minoxidil Booster');
+
+    // 3. DELETE /reminders/:reminderId
+    const delRes = recorder();
+    await controller.deleteReminder(
+      { user: { id: 42 }, params: { reminderId: 'rem_1' } },
+      delRes,
+      (err) => { throw err; },
+    );
+    assert.equal(delRes.statusCode, 200);
+    assert.equal(delRes.body.data.reminders.length, 1);
+    assert.equal(delRes.body.data.reminders[0].id, 'rem_2');
+  });
 });
