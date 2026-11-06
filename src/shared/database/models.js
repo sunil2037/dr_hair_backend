@@ -331,7 +331,7 @@ const reviewSchema = new Schema(
 
 const deviceTokenSchema = new Schema(
   {
-    userId: { type: Number, required: true, index: true },
+    userId: { type: Number, required: false, default: null, index: true },
     token: { type: String, required: true, unique: true },
     platform: { type: String, enum: ['android', 'ios', 'web'], required: true },
     created_at: { type: Date, default: Date.now },

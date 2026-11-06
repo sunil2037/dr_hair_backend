@@ -5,20 +5,27 @@ import { store } from '../../../shared/database/store.js';
 export class DeviceTokenRepository {
   async register({ userId, token, platform }) {
     const now = new Date();
+    const cleanUserId = userId != null && !isNaN(Number(userId)) && Number(userId) > 0 ? Number(userId) : null;
     if (isMongoConnected()) {
+      const updateData = { token, platform, updated_at: now };
+      if (cleanUserId !== null) {
+        updateData.userId = cleanUserId;
+      }
       return DeviceTokenModel.findOneAndUpdate(
         { token },
-        { userId: Number(userId), token, platform, updated_at: now },
+        { $set: updateData },
         { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
       ).lean();
     }
     const existing = store.deviceTokens.find((record) => record.token === token);
     if (existing) {
-      Object.assign(existing, { userId: Number(userId), platform, updated_at: now.toISOString() });
+      if (cleanUserId !== null) existing.userId = cleanUserId;
+      existing.platform = platform;
+      existing.updated_at = now.toISOString();
       return existing;
     }
     const record = {
-      userId: Number(userId),
+      userId: cleanUserId,
       token,
       platform,
       created_at: now.toISOString(),
@@ -113,13 +120,15 @@ export class DeviceTokenRepository {
   }
 
   async remove({ userId, token }) {
-    const numericId = Number(userId);
+    const numericId = userId != null && !isNaN(Number(userId)) ? Number(userId) : null;
     if (isMongoConnected()) {
-      const result = await DeviceTokenModel.deleteOne({ userId: numericId, token });
+      const query = { token };
+      if (numericId !== null) query.userId = numericId;
+      const result = await DeviceTokenModel.deleteOne(query);
       return result.deletedCount > 0;
     }
     const index = store.deviceTokens.findIndex(
-      (record) => record.userId === numericId && record.token === token,
+      (record) => record.token === token && (numericId === null || record.userId === numericId),
     );
     if (index === -1) return false;
     store.deviceTokens.splice(index, 1);

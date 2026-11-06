@@ -43,6 +43,38 @@ test('Notification Flow & Deep Linking Endpoints', async (t) => {
     assert.equal(tokens[0].token, 'fcm-token-test-patient-device-abc-1234567890');
   });
 
+  await t.test('registerDeviceToken registers guest device token without user login', async () => {
+    let responseData = null;
+
+    const req = {
+      user: null,
+      body: {
+        token: 'fcm-token-test-guest-device-xyz-9876543210',
+        platform: 'android',
+      },
+    };
+    const res = {
+      status() {
+        return this;
+      },
+      json(payload) {
+        responseData = payload;
+        return this;
+      },
+    };
+
+    await notificationController.registerDeviceToken(req, res, (err) => {
+      if (err) throw err;
+    });
+
+    assert.equal(responseData?.message, 'Device token registered.');
+    assert.equal(responseData?.data?.platform, 'android');
+    assert.equal(responseData?.data?.userId, null);
+
+    const allTokens = await deviceTokenRepository.listAll();
+    assert.ok(allTokens.some((t) => t.token === 'fcm-token-test-guest-device-xyz-9876543210'));
+  });
+
   await t.test('listNotifications lists patient notifications with unread count', async () => {
     let responseData = null;
 

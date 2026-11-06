@@ -19,11 +19,8 @@ export class NotificationController {
 
   registerDeviceToken = async (req, res, next) => {
     try {
-      const userId = Number(req.user?.id);
+      const userId = req.user?.id ? Number(req.user.id) : null;
       const { token, platform } = req.body || {};
-      if (!Number.isInteger(userId) || userId <= 0) {
-        throw new BadRequestError('A registered user account is required to register a device.');
-      }
       if (typeof token !== 'string' || token.trim().length < 20 || token.length > 4096) {
         throw new BadRequestError('A valid Firebase device token is required.');
       }
@@ -36,7 +33,7 @@ export class NotificationController {
         token: token.trim(),
         platform,
       });
-      return sendSuccess(res, { message: 'Device token registered.', data: { platform: record.platform } });
+      return sendSuccess(res, { message: 'Device token registered.', data: { platform: record.platform, userId: record.userId } });
     } catch (error) {
       next(error);
     }
@@ -44,10 +41,10 @@ export class NotificationController {
 
   removeDeviceToken = async (req, res, next) => {
     try {
-      const userId = Number(req.user?.id);
+      const userId = req.user?.id ? Number(req.user.id) : null;
       const { token } = req.body || {};
-      if (!Number.isInteger(userId) || userId <= 0 || typeof token !== 'string') {
-        throw new BadRequestError('A registered user and device token are required.');
+      if (typeof token !== 'string' || !token.trim()) {
+        throw new BadRequestError('A device token is required.');
       }
       const removed = await this.deviceTokenRepository.remove({ userId, token: token.trim() });
       return sendSuccess(res, { message: removed ? 'Device token removed.' : 'Device token was not registered.' });
