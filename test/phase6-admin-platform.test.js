@@ -180,6 +180,89 @@ describe('Phase 6: Admin Platform Controls, Aggregates, Flags & Audits', () => {
       const newLogin = await adminAuthUseCase.execute({ email: 'clinical@drhair.in', password: 'NewDoctorPassword2026!' });
       assert.ok(newLogin.token);
     });
+
+    it('super admin creates an admin with custom password', async () => {
+      const mockReq = {
+        user: { id: superAdmin.id, email: superAdmin.email, role: 'super_admin', permissions: ['*'] },
+        body: {
+          name: 'Custom Password Admin',
+          email: 'custompass@drhair.in',
+          password: 'MyCustomPassword123!',
+          roleTemplate: 'operations-admin',
+        },
+      };
+
+      let resultData = null;
+      const mockRes = {
+        status(code) {
+          assert.equal(code, 201);
+          return this;
+        },
+        json(payload) {
+          resultData = payload;
+          return this;
+        },
+      };
+
+      await adminController.createAdminAccount(mockReq, mockRes, () => {});
+      assert.ok(resultData);
+      assert.equal(resultData.status, 'success');
+      assert.equal(resultData.data.credentials.password, 'MyCustomPassword123!');
+
+      // Can authenticate with that password
+      const adminAuthUseCase = new AdminAuthUseCase({ adminAccountRepository: adminAccountRepo });
+      const login = await adminAuthUseCase.execute({ email: 'custompass@drhair.in', password: 'MyCustomPassword123!' });
+      assert.ok(login.token);
+      assert.equal(login.admin.roleTemplate, 'operations-admin');
+    });
+
+    it('super admin permanently deletes an admin account', async () => {
+      // Create an admin to delete
+      const toDelete = await adminAccountRepo.create({
+        name: 'To Delete',
+        email: 'todelete@drhair.in',
+        passwordHash: await hashPassword('DeleteMe123!'),
+        role: 'admin',
+        roleTemplate: 'content-admin',
+      });
+
+      const deleteReq = {
+        user: { id: superAdmin.id, email: superAdmin.email, role: 'super_admin', permissions: ['*'] },
+        params: { id: toDelete.id },
+      };
+
+      let deleteRes = null;
+      const mockRes = {
+        status(code) {
+          assert.equal(code, 200);
+          return this;
+        },
+        json(payload) {
+          deleteRes = payload;
+          return this;
+        },
+      };
+
+      await adminController.deleteAdminAccount(deleteReq, mockRes, () => {});
+      assert.ok(deleteRes);
+      assert.equal(deleteRes.status, 'success');
+
+      // Account should no longer exist
+      const found = await adminAccountRepo.findById(toDelete.id);
+      assert.equal(found, null);
+
+      // Attempting to delete super admin should be blocked
+      const deleteSuperReq = {
+        user: { id: superAdmin.id, email: superAdmin.email, role: 'super_admin', permissions: ['*'] },
+        params: { id: superAdmin.id },
+      };
+      let errorThrown = null;
+      await adminController.deleteAdminAccount(deleteSuperReq, mockRes, (err) => {
+        errorThrown = err;
+      });
+      assert.ok(errorThrown);
+      assert.equal(errorThrown.statusCode, 409);
+    });
   });
 
   describe('2. Dashboard Summaries from Real Aggregate Repositories', () => {

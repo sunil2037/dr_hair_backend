@@ -121,7 +121,9 @@ export class AdminController {
     try {
       const result = await this.createAdminAccountUseCase.execute(req.body || {});
       return sendSuccess(res, {
-        message: 'Admin account created. Copy its generated password now; it will not be shown again.',
+        message: result.isCustomPassword
+          ? 'Admin account created successfully with the provided credentials.'
+          : 'Admin account created. Copy its generated password now; it will not be shown again.',
         data: {
           admin: result.account,
           credentials: {
@@ -1061,6 +1063,34 @@ export class AdminController {
       }
 
       return sendSuccess(res, { message: 'Password rotated successfully.' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteAdminAccount = async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const actor = req.user?.email || 'Super Admin';
+      const deleted = await this.adminAccountRepository.delete(id);
+
+      if (this.sessionRepository?.revokeByUserId) {
+        await this.sessionRepository.revokeByUserId(id, 'ACCOUNT_DELETED').catch(() => null);
+      }
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'admin.deleted',
+          target: `admin:${deleted.email}`,
+          metadata: { id, email: deleted.email },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, {
+        message: 'Admin account removed successfully.',
+        data: { id, email: deleted.email },
+      });
     } catch (error) {
       next(error);
     }

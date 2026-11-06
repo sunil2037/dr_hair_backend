@@ -206,6 +206,24 @@ export class AdminAccountRepository {
     });
   }
 
+  async delete(id) {
+    const account = await this.findById(id);
+    if (!account) throw new NotFoundError('Admin account not found.');
+    if (account.role === 'super_admin') {
+      throw new ConflictError('Super Admin account cannot be deleted.');
+    }
+
+    const cleanId = String(account.id || id).trim();
+    if (isMongoConnected()) {
+      await AdminAccountModel.findByIdAndDelete(cleanId);
+      return { success: true, id: cleanId, email: account.email };
+    }
+
+    store.adminAccounts = store.adminAccounts || [];
+    store.adminAccounts = store.adminAccounts.filter((item) => item.id !== cleanId);
+    return { success: true, id: cleanId, email: account.email };
+  }
+
   async rotatePassword(id, passwordHash) {
     const account = await this.findById(id);
     if (!account) throw new NotFoundError('Admin account not found.');

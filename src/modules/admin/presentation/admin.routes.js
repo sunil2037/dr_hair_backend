@@ -13,8 +13,10 @@ export const createAdminRouter = ({ adminController, notificationController, vid
   router.post('/accounts', requireSuperAdmin, adminController.createAdminAccount);
   router.post('/accounts/invite', requireSuperAdmin, adminController.inviteAdmin);
   router.patch('/accounts/:id/access', requireSuperAdmin, adminController.updateAdminAccess);
+  router.put('/accounts/:id/access', requireSuperAdmin, adminController.updateAdminAccess);
   router.patch('/accounts/:id/status', requireSuperAdmin, adminController.setAdminStatus);
   router.post('/accounts/:id/rotate-password', requireSuperAdmin, adminController.rotateAdminPassword);
+  router.delete('/accounts/:id', requireSuperAdmin, adminController.deleteAdminAccount);
 
   // Feature Flags & Releases
   router.get('/features', requireSuperAdmin, adminController.listFeatureFlags);
