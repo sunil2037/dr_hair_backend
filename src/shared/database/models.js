@@ -803,7 +803,7 @@ const categorySchema = new Schema(
   },
   { collection: 'categories', versionKey: false },
 );
-categorySchema.index({ type: 1, status: 1 });
+categorySchema.index({ type: 1, status: 1, display_order: 1, created_at: 1 });
 categorySchema.index({ slug: 1, type: 1 });
 
 export const UserModel = mongoose.models.DrHairUser || mongoose.model('DrHairUser', userSchema);

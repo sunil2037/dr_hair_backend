@@ -119,12 +119,24 @@ export class CloudinaryMediaStorage {
           next(null, chunk);
         },
       });
+      const cleanupStreams = () => {
+        try {
+          file.stream.unpipe(sizeGuard);
+          sizeGuard.unpipe(uploadStream);
+        } catch (_) {}
+        try {
+          uploadStream.destroy();
+        } catch (_) {}
+        try {
+          if (typeof file.stream.destroy === 'function') file.stream.destroy();
+        } catch (_) {}
+      };
       sizeGuard.on('error', (error) => {
-        uploadStream.destroy();
+        cleanupStreams();
         finish(error);
       });
       file.stream.on('limit', () => {
-        uploadStream.destroy();
+        cleanupStreams();
         finish(new PayloadTooLargeError('Media file exceeds the configured upload size limit.'));
       });
       file.stream.pipe(sizeGuard).pipe(uploadStream);

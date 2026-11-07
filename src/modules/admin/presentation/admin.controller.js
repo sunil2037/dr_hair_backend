@@ -1201,8 +1201,8 @@ export class AdminController {
         flags = Object.fromEntries(flagList.map((f) => [f.key, f.enabled]));
       }
 
-      if (typeof res.setHeader === 'function') {
-        res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+      if (typeof res.setHeader === 'function' && !res.getHeader?.('Cache-Control')) {
+        res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
       }
 
       return sendSuccess(res, {

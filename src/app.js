@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
 import path from 'path';
@@ -11,6 +12,7 @@ import { NotFoundError } from './shared/errors/index.js';
 import { databaseStatus } from './shared/database/mongodb.js';
 import { sendError } from './shared/utils/response.js';
 import { requestIdMiddleware } from './shared/middlewares/requestId.middleware.js';
+import { cacheControl } from './shared/middlewares/cache.middleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +60,7 @@ export const createApp = () => {
       },
     }),
   );
+  app.use(compression({ threshold: 1024 }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -195,15 +198,15 @@ export const createApp = () => {
       price: '₹2,500',
     },
   ];
-  app.get('/services', (_req, res) => res.status(200).json(clinicalServices));
-  app.get('/api/v1/services', (_req, res) => res.status(200).json(clinicalServices));
+  app.get('/services', cacheControl({ maxAge: 300, sMaxAge: 600, staleWhileRevalidate: 1200 }), (_req, res) => res.status(200).json(clinicalServices));
+  app.get('/api/v1/services', cacheControl({ maxAge: 300, sMaxAge: 600, staleWhileRevalidate: 1200 }), (_req, res) => res.status(200).json(clinicalServices));
 
   // Public clinic appointment closed dates / holidays
-  app.get('/api/v1/appointments/closed-dates', container.controllers.appointmentController.listClosedDates);
+  app.get('/api/v1/appointments/closed-dates', cacheControl({ maxAge: 60, sMaxAge: 300, staleWhileRevalidate: 600 }), container.controllers.appointmentController.listClosedDates);
 
   // App Config & Release Policies (Feature flags & version check for mobile/web clients)
-  app.get('/api/v1/app/config', container.controllers.adminController.getAppConfig);
-  app.get('/api/v1/app/version', container.controllers.adminController.getAppConfig);
+  app.get('/api/v1/app/config', cacheControl({ maxAge: 60, sMaxAge: 120, staleWhileRevalidate: 300 }), container.controllers.adminController.getAppConfig);
+  app.get('/api/v1/app/version', cacheControl({ maxAge: 60, sMaxAge: 120, staleWhileRevalidate: 300 }), container.controllers.adminController.getAppConfig);
 
   // 4. Versioned RESTful API Routes (Modern Aliases)
   app.use('/api/v1/auth', container.routers.authRouter);
@@ -214,16 +217,16 @@ export const createApp = () => {
   app.use('/api/v1/reviews', container.routers.reviewRouter);
   app.use('/api/v1/notifications', container.routers.notificationRouter);
   app.use('/api/v1/media', container.routers.mediaRouter);
-  app.use('/api/v1/videos', container.routers.videoPublicRouter);
-  app.use('/api/v1/categories', container.routers.categoryRouter);
-  app.use('/categories', container.routers.categoryRouter);
+  app.use('/api/v1/videos', cacheControl({ maxAge: 30, sMaxAge: 60, staleWhileRevalidate: 120 }), container.routers.videoPublicRouter);
+  app.use('/api/v1/categories', cacheControl({ maxAge: 120, sMaxAge: 300, staleWhileRevalidate: 600 }), container.routers.categoryRouter);
+  app.use('/categories', cacheControl({ maxAge: 120, sMaxAge: 300, staleWhileRevalidate: 600 }), container.routers.categoryRouter);
   app.use('/api/v1/admin/categories', container.routers.categoryRouter);
-  app.use('/api/v1/products', container.routers.productPublicRouter);
-  app.use('/products', container.routers.productPublicRouter);
+  app.use('/api/v1/products', cacheControl({ maxAge: 30, sMaxAge: 60, staleWhileRevalidate: 120 }), container.routers.productPublicRouter);
+  app.use('/products', cacheControl({ maxAge: 30, sMaxAge: 60, staleWhileRevalidate: 120 }), container.routers.productPublicRouter);
   app.use('/api/v1/admin/products', container.routers.productAdminRouter);
   app.use('/api/v1/cart', container.routers.cartRouter);
   app.use('/cart', container.routers.cartRouter);
-  app.use('/api/v1/content', container.routers.contentRouter);
+  app.use('/api/v1/content', cacheControl({ maxAge: 60, sMaxAge: 120, staleWhileRevalidate: 300 }), container.routers.contentRouter);
   app.use('/api/v1/commerce', container.routers.commerceRouter);
   app.use('/api/v1/patient/addresses', container.routers.patientAddressRouter);
   app.use('/api/v1/patient/orders', container.routers.patientOrderRouter);

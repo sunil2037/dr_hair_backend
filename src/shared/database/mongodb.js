@@ -32,9 +32,10 @@ export const connectDatabase = async () => {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 10000,
         socketTimeoutMS: 45000,
-        maxPoolSize: 20,
-        minPoolSize: 1,
-        maxIdleTimeMS: 30000,
+        maxPoolSize: 10,
+        minPoolSize: 0,
+        maxIdleTimeMS: 15000,
+        bufferCommands: false,
         appName: 'dr-hair-backend',
       });
       logger.info('MongoDB Atlas connection established.');
