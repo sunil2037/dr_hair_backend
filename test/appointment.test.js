@@ -213,4 +213,78 @@ test('Appointment Booking & Payment Endpoints', async (t) => {
     assert.equal(responseData.data.status, 'Confirmed');
     assert.equal(responseData.data.paymentStatus, 'Paid');
   });
+
+  await t.test('admin reschedules appointment with custom reason and dispatches notification', async () => {
+    let responseData = null;
+    const apt = store.appointments.find((a) => a.starts_at === slot2);
+    assert.ok(apt);
+
+    const newSlot = getFutureSlot(6, '11:30:00');
+    const req = {
+      params: { appointmentId: apt.id },
+      user: { email: 'admin@drhair.test' },
+      body: {
+        action: 'reschedule',
+        starts_at: newSlot,
+        reason: 'Dr. Jai Bansal emergency surgical case delay',
+      },
+    };
+    const res = {
+      status() { return this; },
+      json(payload) {
+        responseData = payload;
+        return this;
+      },
+    };
+
+    await appointmentController.updateAdmin(req, res, (err) => {
+      if (err) throw err;
+    });
+
+    assert.equal(responseData.status, 'success');
+    assert.equal(responseData.data.status, 'Confirmed');
+    assert.equal(responseData.data.rescheduleReason, 'Dr. Jai Bansal emergency surgical case delay');
+
+    // Verify in-app notification in store
+    const notifs = store.notifications.filter((n) => Number(n.userId || n.user_id) === userId && n.title === 'Clinic Appointment Rescheduled');
+    assert.ok(notifs.length > 0);
+    const lastNotif = notifs[0];
+    assert.ok(lastNotif.body.includes('Dr. Jai Bansal emergency surgical case delay'));
+  });
+
+  await t.test('admin cancels appointment with cancellation reason and dispatches notification', async () => {
+    let responseData = null;
+    const apt = store.appointments.find((a) => a.status === 'Confirmed');
+    assert.ok(apt);
+
+    const req = {
+      params: { appointmentId: apt.id },
+      user: { email: 'admin@drhair.test' },
+      body: {
+        status: 'Cancelled',
+        cancellation_reason: 'Doctor unavailable due to state conference',
+      },
+    };
+    const res = {
+      status() { return this; },
+      json(payload) {
+        responseData = payload;
+        return this;
+      },
+    };
+
+    await appointmentController.updateAdmin(req, res, (err) => {
+      if (err) throw err;
+    });
+
+    assert.equal(responseData.status, 'success');
+    assert.equal(responseData.data.status, 'Cancelled');
+    assert.equal(responseData.data.cancellationReason, 'Doctor unavailable due to state conference');
+
+    // Verify in-app notification in store
+    const notifs = store.notifications.filter((n) => Number(n.userId || n.user_id) === userId && n.title === 'Clinic Appointment Cancelled');
+    assert.ok(notifs.length > 0);
+    const lastNotif = notifs[0];
+    assert.ok(lastNotif.body.includes('Doctor unavailable due to state conference'));
+  });
 });

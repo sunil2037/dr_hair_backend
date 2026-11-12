@@ -5,6 +5,7 @@ import { store } from '../../../shared/database/store.js';
 export class NotificationRepository {
   async create({
     userId = null,
+    user_id = null,
     title,
     body,
     type = 'general',
@@ -12,12 +13,13 @@ export class NotificationRepository {
     imageUrl = null,
     data = {},
   }) {
+    const effectiveUserId = userId ?? user_id;
     const now = new Date();
     const id = `ntf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const cleanImageUrl = imageUrl && typeof imageUrl === 'string' && imageUrl.trim().length > 0 ? imageUrl.trim() : null;
     const record = {
       id,
-      userId: userId !== null && userId !== undefined ? Number(userId) : null,
+      userId: effectiveUserId !== null && effectiveUserId !== undefined ? Number(effectiveUserId) : null,
       title: title.trim(),
       body: body.trim(),
       type,

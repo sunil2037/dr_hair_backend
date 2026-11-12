@@ -1892,6 +1892,8 @@ paths:
                 action: { type: string, enum: [reschedule] }
                 starts_at: { type: string, format: date-time }
                 status: { type: string, enum: [Requested, Confirmed, Arrived, In Consultation, Completed, Cancelled, No show] }
+                cancellation_reason: { type: string, description: 'Reason for cancellation by clinic admin' }
+                reason: { type: string, description: 'Reason or note for cancellation or reschedule' }
                 payment_status: { type: string, enum: [Pending, Paid, Refunded, Waived] }
       responses:
         '200': { $ref: '#/components/responses/Success' }

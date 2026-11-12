@@ -343,6 +343,14 @@ export class AppointmentController {
       paymentMethod: appointment.payment_method || 'UPI',
       paymentTransactionId: appointment.payment_transaction_id || '',
       paymentTime: appointment.payment_time ? new Date(appointment.payment_time).toISOString() : null,
+      cancellation_reason: appointment.cancellation_reason || '',
+      cancellationReason: appointment.cancellation_reason || '',
+      cancelled_by: appointment.cancelled_by || '',
+      cancelled_at: appointment.cancelled_at ? new Date(appointment.cancelled_at).toISOString() : null,
+      reschedule_reason: appointment.reschedule_reason || '',
+      rescheduleReason: appointment.reschedule_reason || '',
+      rescheduled_by: appointment.rescheduled_by || '',
+      rescheduled_at: appointment.rescheduled_at ? new Date(appointment.rescheduled_at).toISOString() : null,
       _clinicHour: hour,
     };
   };
@@ -478,8 +486,14 @@ export class AppointmentController {
       let patch;
       let event;
       if (action === 'cancel') {
-        patch = { status: 'Cancelled' };
-        event = { action: 'cancelled by patient', status: 'Cancelled', changed_by: appointment.patient_code || 'Patient' };
+        const cancellationReason = String(req.body?.reason || req.body?.cancellation_reason || 'Cancelled by patient').trim().slice(0, 500);
+        patch = {
+          status: 'Cancelled',
+          cancellation_reason: cancellationReason,
+          cancelled_by: appointment.patient_code || 'Patient',
+          cancelled_at: new Date(),
+        };
+        event = { action: `cancelled by patient · Reason: ${cancellationReason}`, status: 'Cancelled', changed_by: appointment.patient_code || 'Patient' };
       } else if (action === 'reschedule') {
         const starts_at = normalizeStartsAt(req.body?.starts_at);
         await this.validateSlot(starts_at, { patientRequest: true, exceptId: appointment.id });
@@ -539,8 +553,20 @@ export class AppointmentController {
       if (body.action === 'reschedule') {
         const starts_at = normalizeStartsAt(body.starts_at);
         await this.validateSlot(starts_at, { exceptId: appointment.id });
-        patch = { starts_at, status: 'Confirmed' };
-        event = { action: 'rescheduled by clinic', status: 'Confirmed', starts_at, changed_by: actor };
+        const reason = String(body.reason || body.reschedule_reason || '').trim().slice(0, 500);
+        patch = {
+          starts_at,
+          status: 'Confirmed',
+          reschedule_reason: reason,
+          rescheduled_by: actor,
+          rescheduled_at: new Date(),
+        };
+        event = {
+          action: `rescheduled by clinic${reason ? ` · Reason: ${reason}` : ''}`,
+          status: 'Confirmed',
+          starts_at,
+          changed_by: actor,
+        };
       } else if (body.status && appointmentStatuses.includes(body.status)) {
         const allowedNext = {
           Requested: ['Confirmed', 'Cancelled'],
@@ -556,7 +582,15 @@ export class AppointmentController {
         }
         if (body.status === 'No show' && new Date(appointment.starts_at).getTime() > Date.now()) throw new BadRequestError('A future appointment cannot be marked as no show.');
         patch.status = body.status;
-        event = { action: `status changed to ${body.status}`, status: body.status, changed_by: actor };
+        if (body.status === 'Cancelled') {
+          const cancellationReason = String(body.cancellation_reason || body.reason || 'Cancelled by clinic administration').trim().slice(0, 500);
+          patch.cancellation_reason = cancellationReason;
+          patch.cancelled_by = actor;
+          patch.cancelled_at = new Date();
+          event = { action: `cancelled by clinic · Reason: ${cancellationReason}`, status: 'Cancelled', changed_by: actor };
+        } else {
+          event = { action: `status changed to ${body.status}`, status: body.status, changed_by: actor };
+        }
       } else if (!body.payment_status) {
         throw new BadRequestError('Provide a valid appointment status, payment_status, or action=reschedule.');
       }
@@ -584,6 +618,116 @@ export class AppointmentController {
           metadata: { status: updated.status, payment_status: updated.payment_status, starts_at: updated.starts_at },
         }).catch(() => null);
       }
+
+      // Automated push & in-app notification trigger when appointment is cancelled or rescheduled by admin
+      if (this.notificationRepository && appointment.userId) {
+        try {
+          if (patch.status === 'Cancelled') {
+            const reasonText = patch.cancellation_reason || 'Cancelled by clinic administration';
+            const aptDate = new Date(appointment.starts_at).toLocaleDateString('en-IN', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              timeZone: 'Asia/Kolkata',
+            });
+            const aptTime = new Date(appointment.starts_at).toLocaleTimeString('en-IN', {
+              hour: '2-digit',
+              minute: '2-digit',
+              timeZone: 'Asia/Kolkata',
+            });
+            const notifTitle = 'Clinic Appointment Cancelled';
+            const notifBody = `Your appointment for ${aptDate} at ${aptTime} was cancelled. Reason: ${reasonText}`;
+
+            const notif = await this.notificationRepository.create({
+              userId: appointment.userId,
+              user_id: appointment.userId,
+              title: notifTitle,
+              body: notifBody,
+              type: 'appointment',
+              data: {
+                appointment_id: appointment.id,
+                status: 'Cancelled',
+                cancellation_reason: reasonText,
+                destination_type: 'screen',
+                screen: 'clinic_appointment',
+              },
+            });
+
+            if (this.deviceTokenRepository) {
+              const tokens = await this.deviceTokenRepository.listByUserId(appointment.userId);
+              for (const { token } of (tokens || [])) {
+                await sendPushNotification({
+                  token,
+                  title: notifTitle,
+                  body: notifBody,
+                  data: {
+                    notification_id: notif?.id || '',
+                    type: 'appointment',
+                    destination_type: 'screen',
+                    screen: 'clinic_appointment',
+                    entity_id: appointment.id,
+                    status: 'Cancelled',
+                    cancellation_reason: reasonText,
+                  },
+                }).catch(() => {});
+              }
+            }
+          } else if (body.action === 'reschedule') {
+            const reasonSuffix = patch.reschedule_reason ? ` Reason: ${patch.reschedule_reason}` : '';
+            const newDate = new Date(patch.starts_at).toLocaleDateString('en-IN', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              timeZone: 'Asia/Kolkata',
+            });
+            const newTime = new Date(patch.starts_at).toLocaleTimeString('en-IN', {
+              hour: '2-digit',
+              minute: '2-digit',
+              timeZone: 'Asia/Kolkata',
+            });
+            const notifTitle = 'Clinic Appointment Rescheduled';
+            const notifBody = `Your appointment has been rescheduled to ${newDate} at ${newTime}.${reasonSuffix}`;
+
+            const notif = await this.notificationRepository.create({
+              userId: appointment.userId,
+              user_id: appointment.userId,
+              title: notifTitle,
+              body: notifBody,
+              type: 'appointment',
+              data: {
+                appointment_id: appointment.id,
+                status: 'Confirmed',
+                starts_at: patch.starts_at,
+                reschedule_reason: patch.reschedule_reason || '',
+                destination_type: 'screen',
+                screen: 'clinic_appointment',
+              },
+            });
+
+            if (this.deviceTokenRepository) {
+              const tokens = await this.deviceTokenRepository.listByUserId(appointment.userId);
+              for (const { token } of (tokens || [])) {
+                await sendPushNotification({
+                  token,
+                  title: notifTitle,
+                  body: notifBody,
+                  data: {
+                    notification_id: notif?.id || '',
+                    type: 'appointment',
+                    destination_type: 'screen',
+                    screen: 'clinic_appointment',
+                    entity_id: appointment.id,
+                    status: 'Confirmed',
+                    starts_at: patch.starts_at,
+                    reschedule_reason: patch.reschedule_reason || '',
+                  },
+                }).catch(() => {});
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       const patient = await this.userRepository.findById(appointment.userId);
       return sendSuccess(res, { message: 'Appointment updated.', data: this.serialize(updated, patient) });
     } catch (error) { next(error); }
