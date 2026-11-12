@@ -53,6 +53,7 @@ export class AppointmentController {
             payment_required: Boolean(flag.enabled),
             consultation_fee: Number(flag.metadata?.consultation_fee ?? 500),
             currency: String(flag.metadata?.currency ?? 'INR'),
+            first_appointment_free: Boolean(flag.metadata?.first_appointment_free ?? false),
           };
         }
       } catch (_) {}
@@ -61,13 +62,33 @@ export class AppointmentController {
       payment_required: false,
       consultation_fee: 500,
       currency: 'INR',
+      first_appointment_free: false,
     };
   };
 
   getBillingConfigPatient = async (req, res, next) => {
     try {
       const billing = await this.getBillingConfig();
-      return sendSuccess(res, { data: billing });
+      let isFirstAppointment = true;
+      if (req.user?.id) {
+        const pastAppointments = await this.appointmentRepository.listByPatient(req.user.id);
+        const activeOrCompleted = (pastAppointments || []).filter(
+          (apt) => apt.status !== 'Cancelled'
+        );
+        isFirstAppointment = activeOrCompleted.length === 0;
+      }
+      const isFirstFree = billing.first_appointment_free && isFirstAppointment;
+      const effectiveFee = isFirstFree ? 0 : billing.consultation_fee;
+      const effectivePaymentRequired = isFirstFree ? false : billing.payment_required;
+
+      return sendSuccess(res, {
+        data: {
+          ...billing,
+          is_first_appointment: isFirstAppointment,
+          effective_fee: effectiveFee,
+          effective_payment_required: effectivePaymentRequired,
+        },
+      });
     } catch (error) { next(error); }
   };
 
@@ -83,6 +104,7 @@ export class AppointmentController {
       if (!this.featureFlagRepository) throw new BadRequestError('Feature flag repository not configured.');
       const payment_required = req.body?.payment_required != null ? Boolean(req.body.payment_required) : false;
       const consultation_fee = req.body?.consultation_fee != null ? Math.max(0, Number(req.body.consultation_fee)) : 500;
+      const first_appointment_free = req.body?.first_appointment_free != null ? Boolean(req.body.first_appointment_free) : false;
       const actor = req.user?.email || req.user?.login || 'Super Admin';
 
       const updated = await this.featureFlagRepository.setFlag('clinic_appointment_billing', {
@@ -90,7 +112,7 @@ export class AppointmentController {
         description: 'Control whether online payment via Razorpay is required for appointments and set consultation fee.',
         group: 'Appointments',
         enabled: payment_required,
-        metadata: { consultation_fee, currency: 'INR', payment_required },
+        metadata: { consultation_fee, currency: 'INR', payment_required, first_appointment_free },
         updatedBy: actor,
       });
 
@@ -99,7 +121,7 @@ export class AppointmentController {
           actor,
           action: 'appointment_billing.updated',
           target: 'clinic_appointment_billing',
-          metadata: { payment_required, consultation_fee },
+          metadata: { payment_required, consultation_fee, first_appointment_free },
         }).catch(() => null);
       }
 
@@ -109,6 +131,7 @@ export class AppointmentController {
           payment_required: Boolean(updated.enabled),
           consultation_fee: Number(updated.metadata?.consultation_fee ?? consultation_fee),
           currency: 'INR',
+          first_appointment_free: Boolean(updated.metadata?.first_appointment_free ?? first_appointment_free),
         },
       });
     } catch (error) { next(error); }
@@ -123,9 +146,19 @@ export class AppointmentController {
       await this.validateSlot(starts_at, { patientRequest: true });
 
       const billing = await this.getBillingConfig();
+      let isFirstAppointment = false;
+      if (req.user?.id) {
+        const list = await this.appointmentRepository.listByPatient(req.user.id);
+        const nonCancelled = (list || []).filter((apt) => apt.status !== 'Cancelled');
+        isFirstAppointment = nonCancelled.length === 0;
+      }
+      if (billing.first_appointment_free && isFirstAppointment) {
+        throw new BadRequestError('Your first consultation is free! Online payment is not required.');
+      }
+
       const fee = billing.consultation_fee;
-      if (fee <= 0) {
-        throw new BadRequestError('Consultation fee is ₹0. Online payment is not required.');
+      if (fee <= 0 || !billing.payment_required) {
+        throw new BadRequestError('Consultation fee is ₹0 or online payment is not required.');
       }
 
       const patient = await this.userRepository.findById(req.user.id);
@@ -145,7 +178,9 @@ export class AppointmentController {
       return sendSuccess(res, {
         data: {
           orderId: intent.intentId,
+          intent_id: intent.intentId,
           keyId: intent.keyId || process.env.RAZORPAY_KEY_ID || '',
+          key_id: intent.keyId || process.env.RAZORPAY_KEY_ID || '',
           amount: intent.amount,
           amountFormatted: fee,
           currency: intent.currency || 'INR',
@@ -336,19 +371,30 @@ export class AppointmentController {
       const actor = patient?.patient_code || 'Patient';
 
       const billing = await this.getBillingConfig();
-      if (billing.payment_required) {
+      let isFirstAppointment = false;
+      if (req.user?.id) {
+        const list = await this.appointmentRepository.listByPatient(req.user.id);
+        const nonCancelled = (list || []).filter((apt) => apt.status !== 'Cancelled');
+        isFirstAppointment = nonCancelled.length === 0;
+      }
+      const isFirstAppointmentFree = billing.first_appointment_free && isFirstAppointment;
+      const isOnlineRequired = billing.payment_required && !isFirstAppointmentFree;
+
+      if (isOnlineRequired) {
         throw new BadRequestError('Online payment is required to book an appointment. Please complete Razorpay checkout.');
       }
 
-      const consultation_fee = billing.consultation_fee;
+      const consultation_fee = isFirstAppointmentFree ? 0 : billing.consultation_fee;
 
-      // Block unverified client-supplied 'Paid' status
+      // Block unverified client-supplied 'Paid' status unless waived for free consultation
       if (req.body?.payment_status === 'Paid') {
         throw new BadRequestError('Online payment verification is not yet integrated for direct requests. In-clinic appointments must be requested as Pending (Pay at clinic).');
       }
 
-      const payment_method = String(req.body?.payment_method || 'Pay at clinic').trim();
-      const payment_status = 'Pending';
+      const payment_method = isFirstAppointmentFree
+        ? 'Free First Consultation'
+        : String(req.body?.payment_method || 'Pay at clinic').trim();
+      const payment_status = isFirstAppointmentFree ? 'Waived' : 'Pending';
       const payment_transaction_id = null;
 
       const appointment = await this.appointmentRepository.create({

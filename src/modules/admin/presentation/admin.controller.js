@@ -1205,6 +1205,7 @@ export class AdminController {
         payment_required: false,
         consultation_fee: 500,
         currency: 'INR',
+        first_appointment_free: false,
       };
 
       if (this.featureFlagRepository) {
@@ -1216,6 +1217,7 @@ export class AdminController {
             payment_required: Boolean(billingFlag.enabled),
             consultation_fee: Number(billingFlag.metadata?.consultation_fee ?? 500),
             currency: String(billingFlag.metadata?.currency ?? 'INR'),
+            first_appointment_free: Boolean(billingFlag.metadata?.first_appointment_free ?? false),
           };
         }
       }

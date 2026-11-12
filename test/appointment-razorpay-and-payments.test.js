@@ -159,4 +159,82 @@ test('Appointment Razorpay Billing & Admin Received Payments', async (t) => {
     assert.ok(res.data.data.summary.appointment_revenue >= 650);
     assert.ok(res.data.data.summary.paid_count >= 1);
   });
+
+  await t.test('7. Admin enables first_appointment_free and new patient books for ₹0', async () => {
+    const newPatient = await userRepository.create({
+      phone: '9876500001',
+      name: 'First Time Patient',
+      email: 'new.patient@example.com',
+      role: 'user',
+    });
+
+    // Update billing: payment required ON, but first appointment free ON
+    await appointmentController.updateBillingConfigAdmin({
+      user: { email: 'admin@drhair.com', role: 'super-admin' },
+      body: { payment_required: true, consultation_fee: 500, first_appointment_free: true },
+    }, createMockRes(), (err) => { if (err) throw err; });
+
+    // Check patient billing config: should show first appointment free
+    const patientConfigRes = createMockRes();
+    await appointmentController.getBillingConfigPatient({ user: { id: newPatient.id } }, patientConfigRes, () => {});
+    assert.equal(patientConfigRes.data.data.first_appointment_free, true);
+    assert.equal(patientConfigRes.data.data.is_first_appointment, true);
+    assert.equal(patientConfigRes.data.data.effective_fee, 0);
+    assert.equal(patientConfigRes.data.data.effective_payment_required, false);
+
+    // New patient books directly for free
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + ((1 + 7 - futureDate.getDay()) % 7 || 7));
+    futureDate.setHours(11, 30, 0, 0);
+
+    const bookRes = createMockRes();
+    await appointmentController.createPatient({
+      user: { id: newPatient.id },
+      body: {
+        starts_at: futureDate.toISOString(),
+        reason: 'First consultation for hair thinning',
+      },
+    }, bookRes, (err) => { if (err) throw err; });
+
+    assert.equal(bookRes.data.data.consultationFee, 0);
+    assert.equal(bookRes.data.data.paymentMethod, 'Free First Consultation');
+    assert.equal(bookRes.data.data.paymentStatus, 'Waived');
+  });
+
+  await t.test('8. Admin turns off payment_required (payment disabled) and allows direct booking', async () => {
+    const regularPatient = await userRepository.create({
+      phone: '9876500002',
+      name: 'Regular Patient',
+      email: 'reg.patient@example.com',
+      role: 'user',
+    });
+
+    await appointmentController.updateBillingConfigAdmin({
+      user: { email: 'admin@drhair.com', role: 'super-admin' },
+      body: { payment_required: false, consultation_fee: 400, first_appointment_free: false },
+    }, createMockRes(), (err) => { if (err) throw err; });
+
+    const patientConfigRes = createMockRes();
+    await appointmentController.getBillingConfigPatient({ user: { id: regularPatient.id } }, patientConfigRes, () => {});
+    assert.equal(patientConfigRes.data.data.payment_required, false);
+    assert.equal(patientConfigRes.data.data.effective_payment_required, false);
+
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + ((2 + 7 - futureDate.getDay()) % 7 || 7));
+    futureDate.setHours(12, 0, 0, 0);
+
+    const bookRes = createMockRes();
+    await appointmentController.createPatient({
+      user: { id: regularPatient.id },
+      body: {
+        starts_at: futureDate.toISOString(),
+        reason: 'Routine scalp checkup',
+        payment_method: 'Pay at clinic',
+      },
+    }, bookRes, (err) => { if (err) throw err; });
+
+    assert.equal(bookRes.data.data.consultationFee, 400);
+    assert.equal(bookRes.data.data.paymentMethod, 'Pay at clinic');
+    assert.equal(bookRes.data.data.paymentStatus, 'Pending');
+  });
 });
