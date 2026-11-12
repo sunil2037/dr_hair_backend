@@ -238,7 +238,7 @@ export const store = {
       maintenanceMode: false,
       maintenanceMessage: 'Dr. Hair Android app is undergoing scheduled clinical maintenance.',
       releaseNotes: 'Performance enhancements and clinical stability fixes.',
-      downloadUrl: 'https://play.google.com/store/apps/details?id=com.drhair.app',
+      downloadUrl: 'https://play.google.com/store/apps/details?id=com.drhair',
       updatedBy: 'Super Admin',
       created_at: '2026-03-20T10:00:00.000Z',
       updated_at: '2026-03-20T10:00:00.000Z',

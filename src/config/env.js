@@ -109,6 +109,10 @@ export const config = {
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL?.trim() || '',
     privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n').trim() || '',
   },
+
+  googleAuth: {
+    clientId: process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || '',
+  },
   
   otp: {
     expiryMinutes: parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 10,

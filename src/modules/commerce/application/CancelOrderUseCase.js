@@ -19,6 +19,10 @@ export class CancelOrderUseCase {
       throw new ForbiddenError('You can only cancel your own orders');
     }
 
+    if (order.payment.payment_status === 'Paid') {
+      throw new BadRequestError('Paid orders must be refunded instead of cancelled');
+    }
+
     const currentStatus = order.fulfillment.status;
     if (['Shipped', 'Delivered', 'Cancelled', 'Refunded'].includes(currentStatus)) {
       throw new BadRequestError(`Cannot cancel order in '${currentStatus}' status`);

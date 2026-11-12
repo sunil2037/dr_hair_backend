@@ -12,6 +12,7 @@ export class CommerceController {
     cancelOrderUseCase,
     refundOrderUseCase,
     updateFulfillmentUseCase,
+    createShiprocketShipmentUseCase,
     paymentGatewayService,
   }) {
     this.addressRepository = addressRepository;
@@ -23,6 +24,7 @@ export class CommerceController {
     this.cancelOrderUseCase = cancelOrderUseCase;
     this.refundOrderUseCase = refundOrderUseCase;
     this.updateFulfillmentUseCase = updateFulfillmentUseCase;
+    this.createShiprocketShipmentUseCase = createShiprocketShipmentUseCase;
     this.paymentGatewayService = paymentGatewayService;
   }
 
@@ -109,7 +111,7 @@ export class CommerceController {
         addressId: req.body.address_id || req.body.addressId || null,
         shippingAddress: req.body.shipping_address || req.body.shippingAddress || null,
         couponCode: req.body.coupon_code || req.body.couponCode || null,
-        paymentGateway: req.body.payment_gateway || req.body.paymentGateway || 'razorpay',
+        paymentGateway: req.body.payment_gateway || req.body.paymentGateway || 'cod',
         idempotencyKey,
         actor: { id: userId, type: 'patient' },
       });
@@ -139,6 +141,7 @@ export class CommerceController {
         orderId: cleanOrderId,
         paymentId: cleanPaymentId,
         paymentSignature: cleanSignature,
+        userId: req.user?.id,
         isWebhook: false,
         actor: req.user ? { id: req.user.id, type: req.user.role ? 'admin' : 'patient' } : null,
       });
@@ -166,7 +169,7 @@ export class CommerceController {
       const event = payload.event;
       if (event === 'payment.captured' || event === 'order.paid') {
         const paymentEntity = payload.payload?.payment?.entity || {};
-        const orderId = paymentEntity.notes?.order_id || paymentEntity.order_id;
+        const orderId = paymentEntity.notes?.app_order_id || paymentEntity.notes?.order_id;
         const paymentId = paymentEntity.id;
 
         if (orderId) {
@@ -295,6 +298,19 @@ export class CommerceController {
       });
 
       return sendSuccess(res, updated.toJSON(), 'Order fulfillment status updated');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async createShiprocketShipment(req, res, next) {
+    try {
+      const { orderId } = req.params;
+      const updated = await this.createShiprocketShipmentUseCase.execute({
+        orderId,
+        actor: { id: req.admin?.id || 'admin', type: 'admin' },
+      });
+      return sendSuccess(res, updated.toJSON(), 'Shiprocket shipment created and pickup requested');
     } catch (err) {
       next(err);
     }

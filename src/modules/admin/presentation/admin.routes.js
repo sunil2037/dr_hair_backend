@@ -108,6 +108,7 @@ export const createAdminRouter = ({ adminController, notificationController, vid
     router.get('/orders', requirePermission('orders.manage'), (req, res, next) => commerceController.listAdminOrders(req, res, next));
     router.get('/orders/:orderId', requirePermission('orders.manage'), (req, res, next) => commerceController.getAdminOrder(req, res, next));
     router.patch('/orders/:orderId/fulfillment', requirePermission('orders.manage'), (req, res, next) => commerceController.updateFulfillment(req, res, next));
+    router.post('/orders/:orderId/shiprocket', requirePermission('orders.manage'), (req, res, next) => commerceController.createShiprocketShipment(req, res, next));
     router.post('/orders/:orderId/cancel', requirePermission('orders.manage'), (req, res, next) => commerceController.cancelAdminOrder(req, res, next));
     router.post('/orders/:orderId/refund', requirePermission('orders.manage'), (req, res, next) => commerceController.refundAdminOrder(req, res, next));
     router.post('/products/:productId/inventory', requirePermission('products.manage'), (req, res, next) => commerceController.restockProduct(req, res, next));

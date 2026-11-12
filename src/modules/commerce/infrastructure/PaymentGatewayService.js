@@ -1,11 +1,24 @@
 import crypto from 'crypto';
-import { BadRequestError } from '../../../shared/errors/index.js';
+import { BadGatewayError, BadRequestError, ServiceUnavailableError } from '../../../shared/errors/index.js';
+
+const RAZORPAY_API_URL = 'https://api.razorpay.com/v1';
 
 export class PaymentGatewayService {
-  constructor({ keyId, keySecret, webhookSecret } = {}) {
-    this.keyId = keyId || process.env.RAZORPAY_KEY_ID || 'rzp_test_drhair_dummy';
-    this.keySecret = keySecret || process.env.RAZORPAY_KEY_SECRET || 'rzp_secret_dummy_safe';
-    this.webhookSecret = webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || 'rzp_webhook_secret_dummy';
+  constructor({ keyId, keySecret, webhookSecret, fetchImpl = globalThis.fetch } = {}) {
+    this.keyId = keyId || process.env.RAZORPAY_KEY_ID || '';
+    this.keySecret = keySecret || process.env.RAZORPAY_KEY_SECRET || '';
+    this.webhookSecret = webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || '';
+    this.fetch = fetchImpl;
+  }
+
+  assertConfigured() {
+    if (!this.keyId || !this.keySecret) {
+      throw new ServiceUnavailableError(
+        'Razorpay online payments are not configured. Add matching Razorpay Test Mode or Live API credentials to the backend environment.',
+        null,
+        'RAZORPAY_NOT_CONFIGURED',
+      );
+    }
   }
 
   async createPaymentIntent({ orderId, amount, currency = 'INR', customer = {} }) {
@@ -13,14 +26,40 @@ export class PaymentGatewayService {
       throw new BadRequestError('Invalid order ID or payable amount for payment intent');
     }
 
-    const intentId = `rzp_order_${orderId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    this.assertConfigured();
+
+    let response;
+    try {
+      response = await this.fetch(`${RAZORPAY_API_URL}/orders`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: Math.round(amount * 100),
+          currency,
+          receipt: String(orderId).slice(0, 40),
+          notes: { app_order_id: String(orderId) },
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch {
+      throw new BadGatewayError('Could not reach Razorpay to create a payment order.');
+    }
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.id) {
+      throw new BadGatewayError('Razorpay could not create the payment order. Check the merchant account and API keys.');
+    }
+
     return {
-      intentId,
+      intentId: result.id,
       orderId,
-      amount: Math.round(amount * 100), // in paise
+      amount: result.amount,
       amountFormatted: amount,
-      currency,
-      status: 'created',
+      currency: result.currency || currency,
+      status: result.status || 'created',
       keyId: this.keyId,
       customer: {
         name: customer.name || '',
@@ -31,7 +70,7 @@ export class PaymentGatewayService {
   }
 
   verifyPaymentSignature({ orderId, paymentId, signature }) {
-    if (!orderId || !paymentId || !signature) {
+    if (!this.keySecret || !orderId || !paymentId || !signature) {
       return false;
     }
     const expected = crypto
@@ -46,7 +85,58 @@ export class PaymentGatewayService {
     }
   }
 
+  async verifyCapturedPayment({ paymentId, expectedOrderId, expectedAmount, currency = 'INR' }) {
+    this.assertConfigured();
+    const payment = await this.request(`/payments/${encodeURIComponent(paymentId)}`, { method: 'GET' });
+    if (payment.order_id !== expectedOrderId) {
+      throw new BadRequestError('Razorpay payment does not belong to this order');
+    }
+    if (Number(payment.amount) !== Math.round(expectedAmount * 100) || payment.currency !== currency) {
+      throw new BadRequestError('Razorpay payment amount or currency does not match this order');
+    }
+
+    if (payment.status === 'authorized') {
+      const captured = await this.request(`/payments/${encodeURIComponent(paymentId)}/capture`, {
+        method: 'POST',
+        body: JSON.stringify({ amount: Number(payment.amount), currency }),
+      });
+      if (captured.status !== 'captured') {
+        throw new BadGatewayError('Razorpay did not confirm that the payment was captured.');
+      }
+      return captured;
+    }
+
+    if (payment.status !== 'captured') {
+      throw new BadRequestError('Razorpay payment is not captured');
+    }
+    return payment;
+  }
+
+  async request(path, options) {
+    let response;
+    try {
+      response = await this.fetch(`${RAZORPAY_API_URL}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64')}`,
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch {
+      throw new BadGatewayError('Could not reach Razorpay to verify the payment.');
+    }
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result) {
+      throw new BadGatewayError('Razorpay could not verify the payment. Check the API credentials and payment status.');
+    }
+    return result;
+  }
+
   generateSignature(orderId, paymentId) {
+    if (!this.keySecret) return '';
     return crypto
       .createHmac('sha256', this.keySecret)
       .update(`${orderId}|${paymentId}`)
@@ -54,7 +144,7 @@ export class PaymentGatewayService {
   }
 
   verifyWebhookSignature({ payload, signature, customSecret = null }) {
-    if (!signature) return false;
+    if (!signature || !(customSecret || this.webhookSecret)) return false;
     const secret = customSecret || this.webhookSecret;
     const dataString = typeof payload === 'string' ? payload : JSON.stringify(payload);
     const expected = crypto

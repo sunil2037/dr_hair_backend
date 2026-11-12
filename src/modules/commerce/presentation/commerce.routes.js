@@ -9,7 +9,7 @@ export function createCommerceRouter({ commerceController }) {
   router.post('/checkout', authenticateToken, (req, res, next) => commerceController.checkout(req, res, next));
 
   // Payment Verification (Authenticated or token-bearing)
-  router.post('/verify-payment', (req, res, next) => commerceController.verifyPayment(req, res, next));
+  router.post('/verify-payment', authenticateToken, (req, res, next) => commerceController.verifyPayment(req, res, next));
 
   // Public Gateway Webhook (HMAC signature verified inside controller)
   router.post('/webhook/payment', (req, res, next) => commerceController.handlePaymentWebhook(req, res, next));
@@ -52,6 +52,7 @@ export function createAdminOrderRouter({ commerceController }) {
   router.get('/', (req, res, next) => commerceController.listAdminOrders(req, res, next));
   router.get('/:orderId', (req, res, next) => commerceController.getAdminOrder(req, res, next));
   router.patch('/:orderId/fulfillment', (req, res, next) => commerceController.updateFulfillment(req, res, next));
+  router.post('/:orderId/shiprocket', (req, res, next) => commerceController.createShiprocketShipment(req, res, next));
   router.post('/:orderId/cancel', (req, res, next) => commerceController.cancelAdminOrder(req, res, next));
   router.post('/:orderId/refund', (req, res, next) => commerceController.refundAdminOrder(req, res, next));
 

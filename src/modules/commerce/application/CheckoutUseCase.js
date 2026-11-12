@@ -27,7 +27,7 @@ export class CheckoutUseCase {
     addressId,
     shippingAddress,
     couponCode = null,
-    paymentGateway = 'razorpay',
+    paymentGateway = 'cod',
     idempotencyKey = null,
     actor = null,
   }) {
@@ -35,23 +35,51 @@ export class CheckoutUseCase {
     if (!cleanUserId) {
       throw new BadRequestError('User ID is required for checkout');
     }
+    if (!['cod', 'pay_at_clinic', 'razorpay'].includes(paymentGateway)) {
+      throw new BadRequestError('Unsupported payment method');
+    }
 
     // 1. Idempotency Check
     if (idempotencyKey) {
       const existing = await this.orderRepository.findByIdempotencyKey(idempotencyKey, cleanUserId);
       if (existing) {
         // Return existing order without re-charging or re-reserving stock
-        const intent = await this.paymentGatewayService.createPaymentIntent({
-          orderId: existing.order_id,
-          amount: existing.pricing.total,
-          customer: existing.customer,
-        });
+        if (existing.payment.payment_status === 'Paid') {
+          return { order: existing, paymentIntent: null, idempotentReplay: true };
+        }
+        const intent = existing.payment.gateway === 'razorpay'
+          ? (existing.payment.payment_intent_id
+            ? {
+                intentId: existing.payment.payment_intent_id,
+                orderId: existing.order_id,
+                amount: Math.round(existing.pricing.total * 100),
+                amountFormatted: existing.pricing.total,
+                currency: 'INR',
+                status: 'created',
+                keyId: this.paymentGatewayService.keyId || process.env.RAZORPAY_KEY_ID || '',
+              }
+            : await this.paymentGatewayService.createPaymentIntent({
+                orderId: existing.order_id,
+                amount: existing.pricing.total,
+                customer: existing.customer,
+              }))
+          : null;
+        if (intent?.intentId && !existing.payment.payment_intent_id) {
+          const updatedOrder = await this.orderRepository.update(existing.order_id, {
+            payment: { payment_intent_id: intent.intentId },
+          });
+          return { order: updatedOrder, paymentIntent: intent, idempotentReplay: true };
+        }
         return {
           order: existing,
           paymentIntent: intent,
           idempotentReplay: true,
         };
       }
+    }
+
+    if (paymentGateway === 'razorpay' && typeof this.paymentGatewayService.assertConfigured === 'function') {
+      this.paymentGatewayService.assertConfigured();
     }
 
     // 2. Fetch & Validate Delivery Address
@@ -203,15 +231,37 @@ export class CheckoutUseCase {
     // 8. Persist Order
     const savedOrder = await this.orderRepository.create(order);
 
-    // 9. Clear Cart for this user
-    await this.cartRepository.clearCart(cleanUserId);
+    // 9. Create the provider order before clearing the cart so a setup or
+    // provider error leaves the shopper's cart available for another attempt.
+    let paymentIntent = null;
+    try {
+      paymentIntent = paymentGateway === 'razorpay'
+        ? await this.paymentGatewayService.createPaymentIntent({
+          orderId: savedOrder.order_id,
+          amount: savedOrder.pricing.total,
+          customer: savedOrder.customer,
+        })
+        : null;
+    } catch (error) {
+      await this.inventoryRepository.releaseStock(savedOrder.items, savedOrder.order_id);
+      await this.orderRepository.update(savedOrder.order_id, {
+        fulfillment: {
+          status: 'Cancelled',
+          cancellation_reason: 'Payment order could not be created',
+          cancelled_at: new Date().toISOString(),
+        },
+      });
+      throw error;
+    }
 
-    // 10. Create Payment Intent
-    const paymentIntent = await this.paymentGatewayService.createPaymentIntent({
-      orderId: savedOrder.order_id,
-      amount: savedOrder.pricing.total,
-      customer: savedOrder.customer,
-    });
+    const completedOrder = paymentIntent?.intentId
+      ? await this.orderRepository.update(savedOrder.order_id, {
+          payment: { payment_intent_id: paymentIntent.intentId },
+        })
+      : savedOrder;
+
+    // 10. Clear Cart only after the gateway order was created successfully.
+    await this.cartRepository.clearCart(cleanUserId);
 
     // 11. Record Audit Event
     if (this.auditEventRepository) {
@@ -229,7 +279,7 @@ export class CheckoutUseCase {
     }
 
     return {
-      order: savedOrder,
+      order: completedOrder,
       paymentIntent,
       idempotentReplay: false,
     };

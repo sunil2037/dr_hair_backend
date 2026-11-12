@@ -1533,6 +1533,27 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/v1/admin/orders/{orderId}/shiprocket:
+    parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Admin]
+      summary: Create a Shiprocket shipment, assign courier/AWB, and request pickup
+      description: Admin-only action. Requires configured Shiprocket API credentials, pickup location, and parcel dimensions. Creates a shipment that may incur courier charges.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /api/v1/admin/orders/{orderId}/cancel:
     parameters:
       - name: orderId
@@ -3296,7 +3317,7 @@ components:
           minItems: 1
           items: { $ref: '#/components/schemas/CheckoutItem' }
         coupon_code: { type: string }
-        payment_gateway: { type: string, default: razorpay }
+        payment_gateway: { type: string, enum: [cod, pay_at_clinic, razorpay], default: cod }
     CheckoutItem:
       type: object
       required: [productId]
@@ -3375,7 +3396,17 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Conflict:
-      description: An account already exists with the submitted email
+      description: The request conflicts with the resource's current state
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    BadGateway:
+      description: Shiprocket rejected the request or returned an invalid response
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ServiceUnavailable:
+      description: Shiprocket credentials or required account configuration are missing
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

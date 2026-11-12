@@ -75,6 +75,8 @@ import { VerifyPaymentUseCase } from './modules/commerce/application/VerifyPayme
 import { CancelOrderUseCase } from './modules/commerce/application/CancelOrderUseCase.js';
 import { RefundOrderUseCase } from './modules/commerce/application/RefundOrderUseCase.js';
 import { UpdateFulfillmentUseCase } from './modules/commerce/application/UpdateFulfillmentUseCase.js';
+import { CreateShiprocketShipmentUseCase } from './modules/commerce/application/CreateShiprocketShipmentUseCase.js';
+import { ShiprocketService } from './modules/commerce/infrastructure/ShiprocketService.js';
 
 // Controllers
 import { AuthController } from './modules/auth/presentation/auth.controller.js';
@@ -340,6 +342,10 @@ export const createContainer = (overrides = {}) => {
       orderRepository,
       auditEventRepository,
     });
+  const shiprocketService = overrides.shiprocketService || new ShiprocketService();
+  const createShiprocketShipmentUseCase =
+    overrides.createShiprocketShipmentUseCase ||
+    new CreateShiprocketShipmentUseCase({ orderRepository, shiprocketService, auditEventRepository });
 
   // 3. Presentation Layer (Controllers)
   const authController = new AuthController({
@@ -469,6 +475,7 @@ export const createContainer = (overrides = {}) => {
       cancelOrderUseCase,
       refundOrderUseCase,
       updateFulfillmentUseCase,
+      createShiprocketShipmentUseCase,
       paymentGatewayService,
     });
 
@@ -584,6 +591,7 @@ export const createContainer = (overrides = {}) => {
       cancelOrderUseCase,
       refundOrderUseCase,
       updateFulfillmentUseCase,
+      createShiprocketShipmentUseCase,
     },
     controllers: {
       authController,

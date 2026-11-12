@@ -40,6 +40,45 @@ export class OrderRepository extends IOrderRepository {
     return new Order(found);
   }
 
+  async claimShiprocketShipment(orderId) {
+    const cleanId = String(orderId || '').trim();
+    if (!cleanId) return null;
+
+    const canClaim = {
+      $and: [
+        { $or: [{ order_id: cleanId }, { id: cleanId }] },
+        { 'fulfillment.status': 'Preparing' },
+        { 'fulfillment.shiprocket_shipment_id': { $in: ['', null] } },
+        { 'fulfillment.awb_code': { $in: ['', null] } },
+        { 'fulfillment.shiprocket_status': { $nin: ['processing', 'needs_review', 'created'] } },
+      ],
+    };
+
+    if (isMongoConnected()) {
+      const record = await OrderModel.findOneAndUpdate(
+        canClaim,
+        {
+          $set: {
+            'fulfillment.shiprocket_status': 'processing',
+            updated_at: new Date().toISOString(),
+          },
+        },
+        { new: true },
+      ).lean();
+      return record ? new Order(record) : null;
+    }
+
+    if (!Array.isArray(store.orders)) return null;
+    const record = store.orders.find((item) => item.order_id === cleanId || item.id === cleanId);
+    if (!record || record.fulfillment?.status !== 'Preparing') return null;
+    if (record.fulfillment?.shiprocket_shipment_id || record.fulfillment?.awb_code) return null;
+    if (['processing', 'needs_review', 'created'].includes(record.fulfillment?.shiprocket_status)) return null;
+
+    record.fulfillment = { ...record.fulfillment, shiprocket_status: 'processing' };
+    record.updated_at = new Date().toISOString();
+    return new Order(record);
+  }
+
   async findByIdempotencyKey(key, userId) {
     if (!key) return null;
     const cleanKey = String(key).trim();

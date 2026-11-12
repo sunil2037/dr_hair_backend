@@ -126,7 +126,11 @@ export class AuthController {
   socialLogin = async (req, res, next) => {
     try {
       const { provider, email, name, provider_id, id_token } = req.body || {};
-      const providerId = provider_id || id_token;
+      // Google identity must come from a verifiable ID token. Apple retains its
+      // existing provider ID flow until its token verifier is implemented.
+      const providerId = provider?.toLowerCase() === 'google'
+        ? id_token
+        : (provider_id || id_token);
       const deviceMetadata = {
         platform: req.headers?.['x-platform'] || req.body?.platform || 'app',
         userAgent: req.headers?.['user-agent'] || '',
@@ -135,8 +139,8 @@ export class AuthController {
 
       const result = await this.socialAuthUseCase.execute({
         provider,
-        email,
-        name,
+        email: provider?.toLowerCase() === 'google' ? undefined : email,
+        name: provider?.toLowerCase() === 'google' ? undefined : name,
         providerId,
         deviceMetadata,
       });

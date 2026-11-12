@@ -4,9 +4,27 @@ import { createContainer } from '../src/container.js';
 import { TokenService } from '../src/shared/utils/token.service.js';
 import { store } from '../src/shared/database/store.js';
 import { ConflictError, BadRequestError } from '../src/shared/errors/index.js';
+import { PaymentGatewayService } from '../src/modules/commerce/infrastructure/PaymentGatewayService.js';
 
 test('Phase 5: Commerce Foundation & Order Lifecycle Tests', async (t) => {
-  const container = createContainer();
+  const paymentGatewayService = new PaymentGatewayService({
+    keyId: 'rzp_test_unit_key',
+    keySecret: 'unit-test-only-secret',
+    fetchImpl: async (url, options = {}) => {
+      const method = options.method || 'GET';
+      const payload = method === 'POST' ? JSON.parse(options.body || '{}') : {};
+      let body;
+      if (url.endsWith('/orders')) {
+        body = { id: 'order_test_unit_123', amount: payload.amount, currency: payload.currency, status: 'created' };
+      } else if (url.endsWith('/payments/pay_test_rzp_999')) {
+        body = { id: 'pay_test_rzp_999', order_id: 'order_test_unit_123', amount: 204000, currency: 'INR', status: 'captured' };
+      } else {
+        return new Response('{}', { status: 404 });
+      }
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+  const container = createContainer({ paymentGatewayService });
   const {
     checkoutUseCase,
     verifyPaymentUseCase,
@@ -21,8 +39,6 @@ test('Phase 5: Commerce Foundation & Order Lifecycle Tests', async (t) => {
     productRepository,
     auditEventRepository,
   } = container.repositories;
-  const { paymentGatewayService } = container.services;
-
   // Setup seed products in memory store
   store.products = [
     {
@@ -117,6 +133,7 @@ test('Phase 5: Commerce Foundation & Order Lifecycle Tests', async (t) => {
       ],
       addressId: address.id,
       couponCode: 'FIRSTDR',
+      paymentGateway: 'razorpay',
       idempotencyKey: 'idem-key-checkout-001',
     });
 
@@ -158,6 +175,7 @@ test('Phase 5: Commerce Foundation & Order Lifecycle Tests', async (t) => {
       items: [{ productId: 'serum-follicle-1', quantity: 2 }],
       addressId: address.id,
       couponCode: 'FIRSTDR',
+      paymentGateway: 'razorpay',
       idempotencyKey: 'idem-key-checkout-001',
     });
 
@@ -235,7 +253,7 @@ test('Phase 5: Commerce Foundation & Order Lifecycle Tests', async (t) => {
 
   await t.test('6. Payment Verification via Gateway Signature & Tamper Rejection', async () => {
     const orders = await container.controllers.commerceController.orderRepository.listByUserId(patientId);
-    const orderToPay = orders.items.find((o) => o.fulfillment.status === 'New' && o.payment.payment_status === 'Pending');
+    const orderToPay = orders.items.find((o) => o.fulfillment.status === 'New' && o.payment.payment_status === 'Pending' && o.payment.gateway === 'razorpay');
     assert.ok(orderToPay);
 
     const orderId = orderToPay.order_id;
@@ -258,7 +276,7 @@ test('Phase 5: Commerce Foundation & Order Lifecycle Tests', async (t) => {
     );
 
     // 6.2 Valid signature verifies payment
-    const validSignature = paymentGatewayService.generateSignature(orderId, paymentId);
+    const validSignature = paymentGatewayService.generateSignature(orderToPay.payment.payment_intent_id, paymentId);
     const verifiedOrder = await verifyPaymentUseCase.execute({
       orderId,
       paymentId,
