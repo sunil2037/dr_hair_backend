@@ -39,6 +39,11 @@ export const createAdminRouter = ({ adminController, notificationController, vid
   router.get('/appointments/closed-dates', requirePermission('bookings.manage'), appointmentController.listClosedDates);
   router.post('/appointments/closed-dates', requirePermission('bookings.manage'), appointmentController.createClosedDate);
   router.delete('/appointments/closed-dates/:date', requirePermission('bookings.manage'), appointmentController.deleteClosedDate);
+  router.get('/appointment-billing', requirePermission('bookings.manage'), appointmentController.getBillingConfigAdmin);
+  router.put('/appointment-billing', requirePermission('bookings.manage'), appointmentController.updateBillingConfigAdmin);
+
+  // Payments & Received Financials
+  router.get('/payments', requireAnyPermission('bookings.manage', 'orders.manage', 'analytics.view'), adminController.listReceivedPayments);
 
   // Patients and clinical directory
   router.get('/users', requireAnyPermission('patients.view', 'patients.lookup'), adminController.listUsers);

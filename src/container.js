@@ -424,6 +424,8 @@ export const createContainer = (overrides = {}) => {
     notificationRepository,
     deviceTokenRepository,
     auditEventRepository,
+    paymentGatewayService,
+    featureFlagRepository,
   });
   const patientClinicalController = new PatientClinicalController({
     hairTestRepository,
@@ -457,6 +459,7 @@ export const createContainer = (overrides = {}) => {
     featureFlagRepository,
     appReleasePolicyRepository,
     productRepository,
+    orderRepository,
     sessionRepository,
     notificationRepository,
     deviceTokenRepository,

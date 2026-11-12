@@ -6,6 +6,9 @@ import { progressCheckInResponse } from '../../../shared/utils/progress-checkin-
 import { getEffectivePermissions } from '../../../shared/utils/admin-permissions.js';
 import { hashPassword } from '../../../shared/utils/password-hasher.js';
 import { sendPushNotification } from '../../notifications/infrastructure/FirebaseAdminMessaging.js';
+import { OrderModel, AppointmentModel } from '../../../shared/database/models.js';
+import { isMongoConnected } from '../../../shared/database/mongodb.js';
+import { store } from '../../../shared/database/store.js';
 
 const reportResponse = (report) => ({
   id: report.id,
@@ -48,6 +51,7 @@ export class AdminController {
     featureFlagRepository,
     appReleasePolicyRepository,
     productRepository,
+    orderRepository,
     sessionRepository,
     notificationRepository,
     deviceTokenRepository,
@@ -67,6 +71,7 @@ export class AdminController {
     this.featureFlagRepository = featureFlagRepository;
     this.appReleasePolicyRepository = appReleasePolicyRepository;
     this.productRepository = productRepository;
+    this.orderRepository = orderRepository;
     this.sessionRepository = sessionRepository;
     this.notificationRepository = notificationRepository;
     this.deviceTokenRepository = deviceTokenRepository;
@@ -1196,9 +1201,23 @@ export class AdminController {
       }
 
       let flags = {};
+      let appointmentBilling = {
+        payment_required: false,
+        consultation_fee: 500,
+        currency: 'INR',
+      };
+
       if (this.featureFlagRepository) {
         const flagList = await this.featureFlagRepository.list({ platform });
         flags = Object.fromEntries(flagList.map((f) => [f.key, f.enabled]));
+        const billingFlag = flagList.find((f) => f.key === 'clinic_appointment_billing');
+        if (billingFlag) {
+          appointmentBilling = {
+            payment_required: Boolean(billingFlag.enabled),
+            consultation_fee: Number(billingFlag.metadata?.consultation_fee ?? 500),
+            currency: String(billingFlag.metadata?.currency ?? 'INR'),
+          };
+        }
       }
 
       if (typeof res.setHeader === 'function' && !res.getHeader?.('Cache-Control')) {
@@ -1211,6 +1230,7 @@ export class AdminController {
           version: clientVersion,
           versionCheck,
           features: flags,
+          appointment_billing: appointmentBilling,
         },
       });
     } catch (error) {
@@ -1333,6 +1353,142 @@ export class AdminController {
       return sendSuccess(res, {
         message: 'Appointments exported successfully.',
         data: { count: items.length, items, exportedAt: new Date().toISOString() },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listReceivedPayments = async (req, res, next) => {
+    try {
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
+      const search = (req.query.search || '').trim().toLowerCase();
+      const typeFilter = (req.query.type || 'all').toLowerCase();
+      const statusFilter = (req.query.status || 'all').toLowerCase();
+
+      let orders = [];
+      if (typeFilter === 'all' || typeFilter === 'order') {
+        if (isMongoConnected()) {
+          orders = await OrderModel.find({}).sort({ created_at: -1 }).limit(500).lean();
+        } else {
+          orders = store.orders || [];
+        }
+      }
+
+      let appointments = [];
+      if (typeFilter === 'all' || typeFilter === 'appointment') {
+        if (isMongoConnected()) {
+          appointments = await AppointmentModel.find({}).sort({ created_at: -1 }).limit(500).lean();
+        } else {
+          appointments = store.appointments || [];
+        }
+      }
+
+      const orderPayments = orders.map((o) => ({
+        id: `PAY-ORD-${o.order_id}`,
+        type: 'Order',
+        reference_id: o.order_id,
+        opd_token: null,
+        customer_name: o.customer?.name || 'Customer',
+        customer_phone: o.customer?.phone || '',
+        customer_email: o.customer?.email || '',
+        amount: o.pricing?.total || 0,
+        gateway: o.payment?.gateway || 'razorpay',
+        method: o.payment?.gateway === 'cod' ? 'Cash on Delivery' : 'Online / UPI',
+        status: o.payment?.payment_status || 'Pending',
+        transaction_id: o.payment?.transaction_id || null,
+        intent_id: o.payment?.payment_intent_id || null,
+        created_at: o.payment?.paid_at || o.created_at || new Date(),
+      }));
+
+      const appointmentPayments = appointments.map((a) => ({
+        id: `PAY-APT-${a.id}`,
+        type: 'Appointment',
+        reference_id: a.id,
+        opd_token: a.opd_token || null,
+        customer_name: a.patient_code || 'Patient',
+        customer_phone: '',
+        customer_email: '',
+        amount: a.consultation_fee != null ? Number(a.consultation_fee) : 500,
+        gateway: a.payment_transaction_id ? 'razorpay' : 'pay_at_clinic',
+        method: a.payment_method || (a.payment_transaction_id ? 'Razorpay' : 'Pay at clinic'),
+        status: a.payment_status || 'Pending',
+        transaction_id: a.payment_transaction_id || null,
+        intent_id: null,
+        created_at: a.payment_time || a.created_at || new Date(),
+      }));
+
+      if (appointmentPayments.length > 0 && this.userRepository) {
+        try {
+          const userIds = [...new Set(appointments.map((a) => a.userId).filter(Boolean))];
+          const usersMap = {};
+          for (const uid of userIds) {
+            const u = await this.userRepository.findById(uid);
+            if (u) usersMap[uid] = u;
+          }
+          for (let i = 0; i < appointments.length; i++) {
+            const apt = appointments[i];
+            const u = usersMap[apt.userId];
+            if (u && appointmentPayments[i]) {
+              appointmentPayments[i].customer_name = u.name || apt.patient_code || 'Patient';
+              appointmentPayments[i].customer_phone = u.phone || '';
+              appointmentPayments[i].customer_email = u.email || '';
+            }
+          }
+        } catch (_) {}
+      }
+
+      let allPayments = [...orderPayments, ...appointmentPayments];
+
+      if (statusFilter !== 'all') {
+        allPayments = allPayments.filter((p) => String(p.status).toLowerCase() === statusFilter);
+      }
+
+      if (search) {
+        allPayments = allPayments.filter((p) =>
+          String(p.reference_id || '').toLowerCase().includes(search) ||
+          String(p.customer_name || '').toLowerCase().includes(search) ||
+          String(p.customer_phone || '').toLowerCase().includes(search) ||
+          (p.transaction_id && String(p.transaction_id).toLowerCase().includes(search)) ||
+          (p.opd_token && String(p.opd_token).toLowerCase().includes(search))
+        );
+      }
+
+      allPayments.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      const total_collected = allPayments
+        .filter((p) => p.status === 'Paid')
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const order_revenue = allPayments
+        .filter((p) => p.status === 'Paid' && p.type === 'Order')
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const appointment_revenue = allPayments
+        .filter((p) => p.status === 'Paid' && p.type === 'Appointment')
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const paid_count = allPayments.filter((p) => p.status === 'Paid').length;
+
+      const total = allPayments.length;
+      const startIndex = (page - 1) * limit;
+      const items = allPayments.slice(startIndex, startIndex + limit);
+
+      return sendSuccess(res, {
+        data: {
+          items,
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit) || 1,
+          },
+          summary: {
+            total_collected,
+            order_revenue,
+            appointment_revenue,
+            paid_count,
+            total_transactions: total,
+          },
+        },
       });
     } catch (error) {
       next(error);

@@ -37,7 +37,10 @@ export const createPatientClinicalRouter = ({ patientClinicalController, appoint
   router.delete('/progress-checkins/:checkInId/photos/:angle', patientClinicalController.deleteProgressPhoto);
   router.get('/reports/:reportId/download', patientClinicalController.downloadReport);
   router.get('/appointments', appointmentController.listPatient);
+  router.get('/appointments/billing-config', appointmentController.getBillingConfigPatient);
   router.post('/appointments', appointmentController.createPatient);
+  router.post('/appointments/create-payment-intent', appointmentController.createPaymentIntent);
+  router.post('/appointments/verify-and-book', appointmentController.verifyAndBook);
   router.patch('/appointments/:appointmentId', appointmentController.updatePatient);
   return router;
 };

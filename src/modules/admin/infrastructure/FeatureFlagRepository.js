@@ -79,12 +79,17 @@ export class FeatureFlagRepository {
       platform: updates.platform || 'all',
       rolloutPercentage: Number(updates.rolloutPercentage) || 100,
       effectiveDate: updates.effectiveDate ? new Date(updates.effectiveDate).toISOString() : null,
+      metadata: updates.metadata || {},
       updatedBy: String(updates.updatedBy || 'Super Admin'),
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     };
     store.featureFlags.push(created);
     return created;
+  }
+
+  async getFlag(key) {
+    return this.findByKey(key);
   }
 
   async evaluate(key, { platform = 'all' } = {}) {

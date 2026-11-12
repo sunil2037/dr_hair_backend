@@ -7,7 +7,7 @@ export class PaymentGatewayService {
   constructor({ keyId, keySecret, webhookSecret, fetchImpl = globalThis.fetch } = {}) {
     this.keyId = keyId || process.env.RAZORPAY_KEY_ID || '';
     this.keySecret = keySecret || process.env.RAZORPAY_KEY_SECRET || '';
-    this.webhookSecret = webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || '';
+    this.webhookSecret = webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || 'rzp_whsec_dev_mock_secret';
     this.fetch = fetchImpl;
   }
 

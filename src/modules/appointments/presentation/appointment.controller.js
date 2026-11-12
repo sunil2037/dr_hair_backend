@@ -31,6 +31,8 @@ export class AppointmentController {
     notificationRepository,
     deviceTokenRepository,
     auditEventRepository,
+    paymentGatewayService,
+    featureFlagRepository,
   }) {
     this.appointmentRepository = appointmentRepository;
     this.userRepository = userRepository;
@@ -38,7 +40,231 @@ export class AppointmentController {
     this.notificationRepository = notificationRepository;
     this.deviceTokenRepository = deviceTokenRepository;
     this.auditEventRepository = auditEventRepository;
+    this.paymentGatewayService = paymentGatewayService;
+    this.featureFlagRepository = featureFlagRepository;
   }
+
+  getBillingConfig = async () => {
+    if (this.featureFlagRepository) {
+      try {
+        const flag = await this.featureFlagRepository.getFlag('clinic_appointment_billing');
+        if (flag) {
+          return {
+            payment_required: Boolean(flag.enabled),
+            consultation_fee: Number(flag.metadata?.consultation_fee ?? 500),
+            currency: String(flag.metadata?.currency ?? 'INR'),
+          };
+        }
+      } catch (_) {}
+    }
+    return {
+      payment_required: false,
+      consultation_fee: 500,
+      currency: 'INR',
+    };
+  };
+
+  getBillingConfigPatient = async (req, res, next) => {
+    try {
+      const billing = await this.getBillingConfig();
+      return sendSuccess(res, { data: billing });
+    } catch (error) { next(error); }
+  };
+
+  getBillingConfigAdmin = async (req, res, next) => {
+    try {
+      const billing = await this.getBillingConfig();
+      return sendSuccess(res, { data: billing });
+    } catch (error) { next(error); }
+  };
+
+  updateBillingConfigAdmin = async (req, res, next) => {
+    try {
+      if (!this.featureFlagRepository) throw new BadRequestError('Feature flag repository not configured.');
+      const payment_required = req.body?.payment_required != null ? Boolean(req.body.payment_required) : false;
+      const consultation_fee = req.body?.consultation_fee != null ? Math.max(0, Number(req.body.consultation_fee)) : 500;
+      const actor = req.user?.email || req.user?.login || 'Super Admin';
+
+      const updated = await this.featureFlagRepository.setFlag('clinic_appointment_billing', {
+        title: 'Clinic Appointment Billing',
+        description: 'Control whether online payment via Razorpay is required for appointments and set consultation fee.',
+        group: 'Appointments',
+        enabled: payment_required,
+        metadata: { consultation_fee, currency: 'INR', payment_required },
+        updatedBy: actor,
+      });
+
+      if (this.auditEventRepository?.record) {
+        await this.auditEventRepository.record({
+          actor,
+          action: 'appointment_billing.updated',
+          target: 'clinic_appointment_billing',
+          metadata: { payment_required, consultation_fee },
+        }).catch(() => null);
+      }
+
+      return sendSuccess(res, {
+        message: 'Appointment billing settings updated.',
+        data: {
+          payment_required: Boolean(updated.enabled),
+          consultation_fee: Number(updated.metadata?.consultation_fee ?? consultation_fee),
+          currency: 'INR',
+        },
+      });
+    } catch (error) { next(error); }
+  };
+
+  createPaymentIntent = async (req, res, next) => {
+    try {
+      if (!this.paymentGatewayService) {
+        throw new BadRequestError('Payment gateway service is not configured.');
+      }
+      const starts_at = normalizeStartsAt(req.body?.starts_at);
+      await this.validateSlot(starts_at, { patientRequest: true });
+
+      const billing = await this.getBillingConfig();
+      const fee = billing.consultation_fee;
+      if (fee <= 0) {
+        throw new BadRequestError('Consultation fee is ₹0. Online payment is not required.');
+      }
+
+      const patient = await this.userRepository.findById(req.user.id);
+      const tempOrderId = `APT-${Date.now()}-${req.user.id}`;
+
+      const intent = await this.paymentGatewayService.createPaymentIntent({
+        orderId: tempOrderId,
+        amount: fee,
+        currency: 'INR',
+        customer: {
+          name: patient?.name || '',
+          email: patient?.email || '',
+          phone: patient?.phone || '',
+        },
+      });
+
+      return sendSuccess(res, {
+        data: {
+          orderId: intent.intentId,
+          keyId: intent.keyId || process.env.RAZORPAY_KEY_ID || '',
+          amount: intent.amount,
+          amountFormatted: fee,
+          currency: intent.currency || 'INR',
+          starts_at,
+          tempOrderId,
+        },
+      });
+    } catch (error) { next(error); }
+  };
+
+  verifyAndBook = async (req, res, next) => {
+    try {
+      if (!this.paymentGatewayService) {
+        throw new BadRequestError('Payment gateway service is not configured.');
+      }
+      const { starts_at: rawStartsAt, reason: rawReason, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        throw new BadRequestError('Missing Razorpay payment verification details (order ID, payment ID, or signature).');
+      }
+
+      const starts_at = normalizeStartsAt(rawStartsAt);
+      const reason = String(rawReason || 'Clinic consultation').trim().slice(0, 500);
+      await this.validateSlot(starts_at, { patientRequest: true });
+
+      const isValid = this.paymentGatewayService.verifyPaymentSignature({
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
+      });
+
+      if (!isValid) {
+        throw new BadRequestError('Razorpay payment signature verification failed.');
+      }
+
+      const billing = await this.getBillingConfig();
+      const fee = billing.consultation_fee;
+      const patient = await this.userRepository.findById(req.user.id);
+      const actor = patient?.patient_code || 'Patient';
+
+      const appointment = await this.appointmentRepository.create({
+        userId: Number(req.user.id),
+        patient_code: patient?.patient_code || '',
+        starts_at,
+        reason,
+        consultation_fee: fee,
+        payment_status: 'Paid',
+        payment_method: 'Razorpay',
+        payment_transaction_id: razorpay_payment_id,
+        payment_time: new Date(),
+        source: 'App',
+        status: 'Confirmed',
+        status_history: [{
+          action: `booked via online payment (₹${fee} Paid via Razorpay · Txn: ${razorpay_payment_id})`,
+          status: 'Confirmed',
+          changed_by: actor,
+          starts_at,
+        }],
+      });
+
+      await this.patientActivityRepository.record({
+        userId: req.user.id,
+        patientCode: patient?.patient_code,
+        type: 'appointment',
+        title: 'Appointment booked (Paid)',
+        summary: `${reason} · ${starts_at} · ₹${fee} Paid via Razorpay (${razorpay_payment_id})`,
+        actor: 'Patient app',
+        metadata: {
+          appointment_id: appointment.id,
+          opd_token: appointment.opd_token,
+          transaction_id: razorpay_payment_id,
+        },
+      });
+
+      if (this.notificationRepository) {
+        try {
+          const notif = await this.notificationRepository.create({
+            userId: Number(req.user.id),
+            title: 'Appointment Confirmed & Paid',
+            body: `Your clinic sitting for ${reason} is confirmed (Token #${appointment.opd_token || '1'}). Payment of ₹${fee} received.`,
+            type: 'appointment',
+            destination: {
+              type: 'screen',
+              screen: 'clinic_appointment',
+              entityId: appointment.id,
+            },
+            data: {
+              appointment_id: appointment.id,
+              opd_token: String(appointment.opd_token || ''),
+              destination_type: 'screen',
+              screen: 'clinic_appointment',
+            },
+          });
+
+          if (this.deviceTokenRepository) {
+            const tokens = await this.deviceTokenRepository.listByUserId(req.user.id);
+            for (const { token } of tokens) {
+              await sendPushNotification({
+                token,
+                title: notif.title,
+                body: notif.body,
+                data: {
+                  notification_id: notif.id,
+                  destination_type: 'screen',
+                  screen: 'clinic_appointment',
+                  entity_id: appointment.id,
+                },
+              }).catch(() => {});
+            }
+          }
+        } catch (_) {}
+      }
+
+      return sendSuccess(res, {
+        message: 'Appointment confirmed and payment verified successfully.',
+        data: this.serialize(appointment, patient),
+        statusCode: 201,
+      });
+    } catch (error) { next(error); }
+  };
 
   validateSlot = async (startsAt, { patientRequest = false, exceptId = '' } = {}) => {
     const date = new Date(startsAt);
@@ -109,11 +335,16 @@ export class AppointmentController {
       const patient = await this.userRepository.findById(req.user.id);
       const actor = patient?.patient_code || 'Patient';
 
-      const consultation_fee = req.body?.consultation_fee != null ? Number(req.body.consultation_fee) : 500;
+      const billing = await this.getBillingConfig();
+      if (billing.payment_required) {
+        throw new BadRequestError('Online payment is required to book an appointment. Please complete Razorpay checkout.');
+      }
 
-      // Block patient-supplied 'Paid' status until verified payment gateway is integrated.
+      const consultation_fee = billing.consultation_fee;
+
+      // Block unverified client-supplied 'Paid' status
       if (req.body?.payment_status === 'Paid') {
-        throw new BadRequestError('Online payment verification is not yet integrated. In-clinic appointments must be requested as Pending (Pay at clinic).');
+        throw new BadRequestError('Online payment verification is not yet integrated for direct requests. In-clinic appointments must be requested as Pending (Pay at clinic).');
       }
 
       const payment_method = String(req.body?.payment_method || 'Pay at clinic').trim();
