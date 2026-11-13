@@ -442,42 +442,54 @@ Do not include markdown fences outside the JSON. Return valid JSON only.
 
     if (!data || !this.apiKey) {
       return {
-        is_hair: true,
-        status: 'hairDetected',
-        confidence: 0.90,
+        is_hair: false,
+        status: 'notHair',
+        confidence: 0.1,
         detected_angle: label,
-        follicle_visibility: 'Clear',
-        message: 'Hair & scalp image ready for clinical assessment.',
-        details: 'Visual verification completed.',
+        follicle_visibility: 'None',
+        message: 'Could not verify scalp photo. Please upload a clear photo of your scalp.',
+        details: 'API key or image data missing.',
         source: 'fallback',
       };
     }
 
     const prompt = `
-You are Dr. Hair's Clinical Vision AI Assistant (under Dr. Jai Bansal's hair recovery protocols).
-Analyze this uploaded patient photo intended for a clinical hair loss & scalp assessment.
-Intended target angle: "${label}".
+You are Dr. Hair Assistant's Clinical Vision AI (under Dr. Jai Bansal's hair recovery protocols).
+Perform strict clinical triage for an uploaded patient photo intended for trichology scalp evaluation.
+Target angle: "${label}".
 
-TASK:
-1. Determine if this photo is a genuine human head, scalp, hairline, or hair image.
-2. If the photo contains non-hair objects (e.g. animals, cars, buildings, food, random objects, blank screen, paper, documents, clothing, or non-head body parts), mark is_hair as false and status as "notHair".
-3. Check lighting, clarity, and whether follicles or hair thinning patterns are discernable.
+CRITICAL CLINICAL ACCEPTANCE RULES:
+1. ONLY APPROVE (status: "hairDetected", is_hair: true) if this photo clearly shows a REAL HUMAN SCALP, HAIRLINE, CROWN, TEMPLES, or ROOTS suitable for a trichology doctor to evaluate hair loss and follicle density.
+2. YOU MUST REJECT (status: "notHair", is_hair: false):
+   - Screenshots of any kind (phone UI, WhatsApp chats, social media, web pages, apps, text, documents, billing receipts, etc.).
+   - Photos of computer monitors, laptop displays, or digital screens.
+   - Random non-hair objects (cars, roads, animals, food, clothes, furniture, rooms, buildings, landscape, plants, nature, etc.).
+   - Full body or distant portraits where scalp/hairline roots are not in clear close-up view.
+   - Non-head body parts (hands, fingers, legs, chest, face without scalp).
+   - Memes, artwork, drawings, cartoons, or graphic illustrations.
+3. If image has hair/scalp but is extremely dark, blurry, or obstructed so a trichologist cannot evaluate hair density: mark status: "lowClarity", is_hair: false.
 
 Return strictly valid JSON:
 {
   "is_hair": true,
   "status": "hairDetected",
   "confidence": 0.95,
-  "detected_angle": "Front Hairline",
+  "detected_angle": "${label}",
   "follicle_visibility": "Clear",
-  "message": "Hair & scalp detected successfully (95% match). Clear view of follicular pattern.",
-  "details": "High follicular clarity and clear view of hairline density."
+  "message": "Clear scalp and hair follicles verified for clinical assessment.",
+  "details": "Follicular density and scalp pattern clearly visible."
 }
 
-Allowed status values:
-- "hairDetected" (if clear hair or scalp is visible)
-- "notHair" (if non-hair photo, random object, animal, or completely off-topic)
-- "lowClarity" (if hair/scalp is present but image is extremely blurry, dark, or obstructed)
+If rejected (non-hair, screenshot, or random object), return:
+{
+  "is_hair": false,
+  "status": "notHair",
+  "confidence": 0.98,
+  "detected_angle": "Unknown",
+  "follicle_visibility": "None",
+  "message": "Non-scalp image detected. Please upload an exclusive close-up photo of your scalp.",
+  "details": "Screenshots, digital graphics, or non-scalp objects cannot be used for clinical diagnosis."
+}
 `;
 
     const controller = new AbortController();
