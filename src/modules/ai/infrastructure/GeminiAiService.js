@@ -27,6 +27,20 @@ export class GeminiAiService {
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       try {
+        const parts = [{ text: prompt }];
+        if (Array.isArray(patientData.inlineImages)) {
+          for (const img of patientData.inlineImages.slice(0, 2)) {
+            if (img.data && img.mimeType) {
+              parts.push({
+                inline_data: {
+                  mime_type: img.mimeType,
+                  data: img.data,
+                },
+              });
+            }
+          }
+        }
+
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
         const response = await this.fetchFn(url, {
           method: 'POST',
@@ -37,7 +51,7 @@ export class GeminiAiService {
             contents: [
               {
                 role: 'user',
-                parts: [{ text: prompt }],
+                parts,
               },
             ],
             generationConfig: {

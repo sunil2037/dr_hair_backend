@@ -161,7 +161,21 @@ export class SubmitHairTestUseCase {
     let aiAssessment = null;
     if (this.geminiAiService) {
       try {
-        aiAssessment = await this.geminiAiService.generateHairTestAssessment(formData);
+        const inlineImages = [];
+        for (const key of ['photo_front', 'photo_top', 'photo_left']) {
+          const fileObj = files[key]?.[0];
+          if (fileObj?.buffer && fileObj.buffer.length <= 2 * 1024 * 1024) {
+            inlineImages.push({
+              mimeType: fileObj.mimetype || 'image/jpeg',
+              data: fileObj.buffer.toString('base64'),
+            });
+            if (inlineImages.length >= 2) break;
+          }
+        }
+        aiAssessment = await this.geminiAiService.generateHairTestAssessment({
+          ...formData,
+          inlineImages,
+        });
       } catch (aiErr) {
         // AI failure must never break patient submission; fallback or null is handled safely
         aiAssessment = null;
