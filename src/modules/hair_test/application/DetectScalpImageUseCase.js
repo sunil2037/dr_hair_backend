@@ -12,14 +12,14 @@ export class DetectScalpImageUseCase {
 
     if (!this.geminiAiService) {
       return {
-        is_hair: true,
-        status: 'hairDetected',
-        confidence: 0.90,
+        is_hair: false,
+        status: 'verificationUnavailable',
+        confidence: 0,
         detected_angle: label,
-        follicle_visibility: 'Clear',
-        message: 'Hair & scalp image ready for assessment.',
-        details: 'Photo registered successfully.',
-        source: 'local-fallback',
+        follicle_visibility: 'Unknown',
+        message: 'Photo verification is temporarily unavailable. Please retry.',
+        details: 'The image verification service is not configured.',
+        source: 'unavailable',
       };
     }
 

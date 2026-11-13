@@ -1876,7 +1876,7 @@ paths:
   /api/v1/admin/appointments:
     get:
       tags: [Admin]
-      summary: List clinic appointments with optional date filters
+      summary: List clinic appointments with optional date and payment filters
       security: [{ bearerAuth: [] }]
       parameters:
         - name: from
@@ -1888,6 +1888,9 @@ paths:
         - name: status
           in: query
           schema: { type: string }
+        - name: payment_status
+          in: query
+          schema: { type: string, enum: [Pending, Paid, Refunded, Waived] }
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -1908,6 +1911,10 @@ paths:
                 starts_at: { type: string, format: date-time }
                 reason: { type: string }
                 source: { type: string, enum: [App, Phone, WhatsApp, Reception] }
+                consultation_fee: { type: number, default: 500 }
+                payment_status: { type: string, enum: [Pending, Paid, Refunded, Waived], default: Pending }
+                payment_method: { type: string, example: 'Cash' }
+                payment_transaction_id: { type: string }
       responses:
         '201': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -1938,6 +1945,9 @@ paths:
                 cancellation_reason: { type: string, description: 'Reason for cancellation by clinic admin' }
                 reason: { type: string, description: 'Reason or note for cancellation or reschedule' }
                 payment_status: { type: string, enum: [Pending, Paid, Refunded, Waived] }
+                payment_method: { type: string, example: 'UPI' }
+                payment_transaction_id: { type: string }
+                consultation_fee: { type: number }
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/BadRequest' }

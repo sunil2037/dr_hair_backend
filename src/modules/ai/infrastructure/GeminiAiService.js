@@ -1,5 +1,38 @@
 import { config } from '../../../config/env.js';
 
+const unavailableImageVerification = (label, details = 'The image verification service did not return a result.') => ({
+  is_hair: false,
+  status: 'verificationUnavailable',
+  confidence: 0,
+  detected_angle: label,
+  follicle_visibility: 'Unknown',
+  message: 'Photo verification is temporarily unavailable. Please retry.',
+  details,
+  source: 'unavailable',
+});
+
+const conservativeNextStepRecommendation = (patientData = {}) => {
+  const pattern = String(patientData.hair_fall_pattern || '').toLowerCase();
+  const symptoms = [patientData.scalp_symptoms, patientData.scalp_condition]
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .join(' ')
+    .toLowerCase();
+  const advancedStage = /stage\s*[- ]?\s*[45]/i.test(String(patientData.hair_loss_stage || ''));
+  const increasing = /yes|increasing|rapid|sudden/i.test(String(patientData.hair_fall_increasing || ''));
+  const redFlag = advancedStage || increasing || /patchy|sudden|rapid|rapidly/i.test(pattern) ||
+    /pain|burn|sore|bleed|wound/i.test(symptoms);
+
+  return redFlag
+    ? {
+        type: 'doctor_appointment',
+        reason: 'Your reported pattern or scalp symptoms deserve an in-person clinician review.',
+      }
+    : {
+        type: 'products',
+        reason: 'Your answers support starting with a simple daily care routine and optional product guidance.',
+      };
+};
+
 export class GeminiAiService {
   constructor({ apiKey, model, fallbackModel, logger, fetchFn = globalThis.fetch, imageStorage } = {}) {
     this.apiKey = apiKey !== undefined ? apiKey : config.gemini?.apiKey;
@@ -134,7 +167,19 @@ export class GeminiAiService {
         return this.generateFallbackAssessment(patientData);
       }
 
+      const hasRequiredAssessment =
+        typeof parsedData.scalp_health_score === 'number' &&
+        Number.isInteger(parsedData.scalp_health_score) &&
+        parsedData.scalp_health_score >= 10 &&
+        parsedData.scalp_health_score <= 100 &&
+        String(parsedData.stage_classification || '').trim().length > 0 &&
+        String(parsedData.summary || '').trim().length > 0 &&
+        parsedData.recommended_regimen &&
+        Array.isArray(parsedData.recommended_regimen.daily_steps);
+      if (!hasRequiredAssessment) return this.generateFallbackAssessment(patientData);
+
       return {
+        ai_status: 'available',
         scalp_health_score: Number(parsedData.scalp_health_score) || 70,
         stage_classification: String(parsedData.stage_classification || 'Stage 2 - Early Thinning'),
         summary: String(parsedData.summary || 'Clinical AI evaluation completed based on reported symptoms.'),
@@ -142,6 +187,18 @@ export class GeminiAiService {
         diet_plan: parsedData.diet_plan || {},
         lifestyle_guidance: parsedData.lifestyle_guidance || {},
         recommended_regimen: parsedData.recommended_regimen || {},
+        next_step_recommendation: (() => {
+          const safetyRecommendation = conservativeNextStepRecommendation(patientData);
+          const modelRecommendation = parsedData.next_step_recommendation;
+          if (safetyRecommendation.type === 'doctor_appointment') return safetyRecommendation;
+          if (modelRecommendation?.type === 'doctor_appointment') {
+            return {
+              type: 'doctor_appointment',
+              reason: String(modelRecommendation.reason || 'A clinician can review your assessment and answer questions.'),
+            };
+          }
+          return safetyRecommendation;
+        })(),
         generated_by: `Dr. Hair Assistant (${activeModel})`,
         generated_at: new Date().toISOString(),
       };
@@ -172,16 +229,18 @@ export class GeminiAiService {
     const medical = Array.isArray(patientData.medical_conditions) ? patientData.medical_conditions.join(', ') : (patientData.medical_conditions || 'None');
     const allergy = patientData.allergy_details || patientData.allergy_status || 'No known allergies';
     const meds = patientData.current_medications || patientData.current_medications_status || 'None';
+    const increasing = patientData.hair_fall_increasing || 'Not specified';
 
     return `
 You are "Dr. Hair Assistant", the Clinical AI Trichologist for Dr. Hair Clinic (guided by Dr. Jai Bansal's hair recovery protocols).
-Analyze the following patient's hair assessment questionnaire and output a structured clinical diagnosis with customized recommendations.
+Analyze the following patient's hair assessment questionnaire and return a cautious, non-diagnostic screening summary with practical recommendations.
 
 PATIENT PROFILE & ASSESSMENT RESPONSES:
 - Age: ${age}
 - Gender: ${gender}
 - Hair Loss Duration: ${duration}
 - Hair Fall Pattern: ${pattern}
+- Hair Fall Increasing: ${increasing}
 - Estimated Daily Hair Fall: ${dailyFall}
 - Scalp Condition: ${scalpCondition}
 - Dandruff Level: ${dandruff}
@@ -196,12 +255,18 @@ PATIENT PROFILE & ASSESSMENT RESPONSES:
 - Known Allergies: ${allergy}
 - Current Medications: ${meds}
 
+Image handling: If photos are included, use them only to assess whether they appear to show the scalp and are clear enough for clinician review. Do not diagnose a condition or infer a hair-loss stage from photos. Base appointment recommendations on the patient's reported answers.
+
 CLINICAL REQUIREMENTS:
 Return a single strictly valid JSON object matching this schema exactly:
 {
-  "scalp_health_score": <Integer between 10 and 100 representing overall hair/scalp vitality>,
-  "stage_classification": "<e.g., Norwood Stage 2 (Early Receding), Ludwig Stage 1, Telogen Effluvium, etc.>",
-  "summary": "<2-3 sentence personalized clinical overview of what is happening to their hair follicles>",
+  "scalp_health_score": <Integer between 10 and 100; a questionnaire screening indicator, not a medical measurement>,
+  "stage_classification": "<A cautious description of the patient's reported pattern; do not assign a medical diagnosis or infer a Norwood/Ludwig stage>",
+  "summary": "<2-3 sentence cautious overview of the answers; distinguish reported information from possible explanations>",
+  "next_step_recommendation": {
+    "type": "doctor_appointment | products",
+    "reason": "<Brief reason based only on the patient's answers; never present this as a diagnosis>"
+  },
   "root_causes": [
     {
       "factor": "<e.g., DHT Sensitivity & Miniaturization, Scalp Microbiome & Sebum, Nutritional Deficit, Stress & Cortisol>",
@@ -223,40 +288,43 @@ Return a single strictly valid JSON object matching this schema exactly:
     "sleep_and_stress": ["<Practical action 1>", "<Practical action 2>"]
   },
   "recommended_regimen": {
-    "summary": "<Holistic 3-step regimen for clinical follicle stimulation and recovery>",
+    "summary": "<Practical daily care plan based on the reported answers; do not describe it as a complete medical treatment>",
     "daily_steps": [
       {
         "step": "Morning",
-        "instruction": "<Specific actionable morning scalp/hair care routine step>"
+        "instruction": "<Simple non-prescription self-care habit; do not prescribe medicine, supplements, or product dosage>"
       },
       {
         "step": "Afternoon",
-        "instruction": "<Specific actionable afternoon nutrition/supplement routine step>"
+        "instruction": "<Simple nutrition or wellbeing habit; do not prescribe medicine, supplements, or product dosage>"
       },
       {
         "step": "Night",
-        "instruction": "<Specific actionable night routine & scalp massage step>"
+        "instruction": "<Simple non-prescription self-care habit; do not prescribe medicine, supplements, or product dosage>"
       }
     ],
     "target_products": [
       {
-        "name": "<Product name e.g., Dr. Hair Anti-Hair Fall Therapy Kit>",
-        "category": "<Hair Care | Serums | Supplements>",
-        "reason": "<Why this product is critical for this patient's root causes>"
+        "name": "<Use the same broad label as category; do not invent a brand or catalog item>",
+        "category": "<Choose one: Hair Care, Serums, or Supplements>",
+        "reason": "<Optional reason for considering this category; keep it non-medical>"
       },
       {
-        "name": "<Product name e.g., Dr. Hair Scalp Activating Serum>",
-        "category": "Serums",
-        "reason": "<Why this product targets their specific stage>"
-      },
-      {
-        "name": "<Product name e.g., Dr. Hair Biotin & Keratin Booster>",
-        "category": "Supplements",
-        "reason": "<Supports internal follicle strength>"
+        "name": "<Broad category label>",
+        "category": "<Choose one: Hair Care, Serums, or Supplements>",
+        "reason": "<Optional reason>"
       }
     ]
   }
 }
+
+NEXT-STEP DECISION:
+- Use type "doctor_appointment" when the answers report patchy hair loss, sudden or rapidly increasing shedding, scalp pain/burning/sores/bleeding, advanced reported thinning, or symptoms whose cause needs clinical assessment. State the reason in calm, non-alarmist language.
+- Otherwise use the existing type "products" to mean a self-care pathway with practical daily steps; products are optional supporting choices, never the primary treatment or the only next step.
+- Make the next step fit the patient's reported condition and realistic care options. When clinician assessment is needed, prioritize the appointment/review path. Do not imply that AI guidance or catalog items provide a complete treatment.
+- Suggest only broad categories from Hair Care, Serums, or Supplements; the app will match them to available catalog items. Never invent a branded product. Do not suggest supplements unless the patient has clinician-confirmed need.
+- Never infer a diagnosis from a photo or questionnaire, and never recommend prescription treatment or supplement dosing.
+- Do not call the score a clinical measurement or present the reported pattern as a confirmed stage or diagnosis.
 
 Do not include markdown fences outside the JSON. Return valid JSON only.
 `;
@@ -295,131 +363,30 @@ Do not include markdown fences outside the JSON. Return valid JSON only.
   }
 
   /**
-   * Deterministic, clinically grounded fallback evaluation when AI service is offline or unconfigured.
+   * Returns an explicit unavailable result when AI cannot produce a usable assessment.
    */
   generateFallbackAssessment(patientData = {}) {
-    let score = 75;
-    const dailyFall = String(patientData.daily_hair_fall || '').toLowerCase();
-    if (dailyFall.includes('100+') || dailyFall.includes('excessive')) score -= 18;
-    else if (dailyFall.includes('50-100') || dailyFall.includes('moderate')) score -= 8;
-
-    const stress = String(patientData.stress_level || '').toLowerCase();
-    if (stress.includes('high') || stress.includes('severe')) score -= 12;
-    else if (stress.includes('moderate')) score -= 5;
-
-    const dandruff = String(patientData.dandruff || '').toLowerCase();
-    if (dandruff.includes('severe') || dandruff.includes('heavy')) score -= 12;
-    else if (dandruff.includes('mild') || dandruff.includes('moderate')) score -= 6;
-
-    const protein = String(patientData.protein_intake || '').toLowerCase();
-    if (protein.includes('low') || protein.includes('poor')) score -= 10;
-    else if (protein.includes('high')) score += 5;
-
-    const sleep = String(patientData.sleep_quality || '').toLowerCase();
-    if (sleep.includes('poor') || sleep.includes('disturbed')) score -= 8;
-
-    score = Math.max(25, Math.min(95, score));
-
-    const gender = String(patientData.gender || 'male').toLowerCase();
-    const pattern = patientData.hair_fall_pattern || 'Diffuse thinning';
-    let stage = gender.includes('female') ? 'Ludwig Stage 1 - Early Central Widening' : 'Norwood Stage 2 - Early Frontal & Temple Thinning';
-    if (String(patientData.hair_loss_stage || '').toLowerCase().includes('stage-3') || String(patientData.hair_loss_stage || '').toLowerCase().includes('stage 3')) {
-      stage = gender.includes('female') ? 'Ludwig Stage 2 - Moderate Thinning' : 'Norwood Stage 3 - Deep Frontal Receding & Crown Thinning';
-    }
-
+    const safetyRecommendation = conservativeNextStepRecommendation(patientData);
     return {
-      scalp_health_score: score,
-      stage_classification: stage,
-      summary: `Clinical assessment identifies active hair fall linked with ${pattern.toLowerCase()} patterns, influenced by internal metabolic factors and scalp environment.`,
-      root_causes: [
-        {
-          factor: 'Follicular Sensitivity & Genetic Susceptibility',
-          severity: patientData.family_history && !patientData.family_history.includes('None') ? 'High' : 'Moderate',
-          explanation: 'Hair follicles at the hairline and crown exhibit higher sensitivity to DHT hormone, accelerating the transition into telogen phase.',
-        },
-        {
-          factor: 'Scalp Microbiome & Sebum Imbalance',
-          severity: dandruff !== 'none' ? 'Moderate' : 'Low',
-          explanation: 'Sebum buildup and topical micro-inflammation around follicle openings impede optimal anagen hair development.',
-        },
-        {
-          factor: 'Nutritional & Protein Deficit',
-          severity: protein.includes('low') ? 'High' : 'Moderate',
-          explanation: 'Keratin synthesis depends on adequate dietary amino acids, zinc, and bioavailable iron.',
-        },
-        {
-          factor: 'Stress-Induced Cortisol Spikes',
-          severity: stress.includes('high') ? 'High' : 'Low',
-          explanation: 'Elevated stress hormones trigger telogen effluvium, causing premature shedding of resting follicles.',
-        },
-      ],
-      diet_plan: {
-        summary: 'Target high-protein nutrition, zinc, and iron rich whole foods to support follicular keratin matrix.',
-        foods_to_eat: [
-          'High protein sources: Eggs, Paneer, Tofu, Sprouts, or Lentils',
-          'Iron & Folate rich greens: Spinach, Fenugreek (Methi), and Moringa',
-          'Healthy fats & Zinc: Roasted pumpkin seeds, Almonds, and Walnuts',
-          'Vitamin C boosters: Amla (Indian gooseberry) and Citrus fruits for iron absorption',
-        ],
-        foods_to_avoid: [
-          'Excess refined sugars, sodas, and ultra-processed baked snacks',
-          'Deep-fried street food causing systemic sebum oxidation',
-          'Excess caffeine on an empty stomach disrupting mineral absorption',
-        ],
-        hydration_target: '2.5 to 3.0 Litres of pure water daily',
-        key_nutrients: ['Biotin (Vitamin B7)', 'Elemental Zinc', 'Iron & Ferritin', 'Omega-3 Fatty Acids', 'Vitamin D3'],
-      },
-      lifestyle_guidance: {
-        summary: 'Establish a calming routine and gentle scalp cleansing regimen to preserve follicle anchoring.',
-        scalp_care_tips: [
-          'Cleanse scalp 2-3 times per week with a gentle, SLS/Paraben-free botanical shampoo.',
-          'Rinse hair only with lukewarm or ambient temperature water; avoid hot water on the scalp.',
-          'Detangle hair using a wide-toothed neem or wooden comb only when hair is completely dry.',
-        ],
-        oiling_rules: [
-          'Do NOT leave heavy oils overnight if you experience dandruff or flaky scalp.',
-          'Apply lightweight herbal oil 45 minutes before showering and wash off thoroughly.',
-        ],
-        sleep_and_stress: [
-          'Prioritize 7-8 hours of sound sleep to promote peak cellular recovery during deep sleep cycles.',
-          'Incorporate 10 minutes of deep belly breathing (Pranayama) daily to regulate cortisol.',
-        ],
-      },
+      ai_status: 'unavailable',
+      scalp_health_score: null,
+      stage_classification: null,
+      summary: 'AI could not prepare your assessment right now. Please try again later or discuss your answers with a clinician.',
+      root_causes: [],
+      diet_plan: {},
+      lifestyle_guidance: {},
       recommended_regimen: {
-        summary: 'A disciplined 3-step daily regimen formulated to revitalize dormant follicles and fortify existing hair shafts.',
-        daily_steps: [
-          {
-            step: 'Morning',
-            instruction: 'Apply 1ml of Dr. Hair Scalp Activating Serum directly to thinning sections and gently tap in.',
-          },
-          {
-            step: 'Afternoon',
-            instruction: 'Take 1 Dr. Hair Biotin & Multivitamin tablet after lunch with water.',
-          },
-          {
-            step: 'Night',
-            instruction: 'Perform a 2-minute gentle finger-tip scalp massage before bed to stimulate microcirculation.',
-          },
-        ],
-        target_products: [
-          {
-            name: 'Dr. Hair Advanced Anti-Hair Fall Serum',
-            category: 'Serums',
-            reason: 'Targets follicle miniaturization and enhances scalp micro-blood circulation.',
-          },
-          {
-            name: 'Dr. Hair Scalp Clarifying & Anti-Dandruff Cleanser',
-            category: 'Hair Care',
-            reason: 'Maintains healthy scalp pH and balances follicular sebum production.',
-          },
-          {
-            name: 'Dr. Hair High-Potency Biotin & Keratin Supplement',
-            category: 'Supplements',
-            reason: 'Provides essential micronutrients for structural hair density and root strength.',
-          },
-        ],
+        summary: '',
+        daily_steps: [],
+        target_products: [],
       },
-      generated_by: 'clinical-rules-engine',
+      next_step_recommendation: safetyRecommendation.type === 'doctor_appointment'
+        ? safetyRecommendation
+        : {
+            type: 'unavailable',
+            reason: 'AI could not prepare a product recommendation. Please retry or ask a clinician.',
+          },
+      generated_by: 'unavailable',
       generated_at: new Date().toISOString(),
     };
   }
@@ -441,16 +408,7 @@ Do not include markdown fences outside the JSON. Return valid JSON only.
     }
 
     if (!data || !this.apiKey) {
-      return {
-        is_hair: false,
-        status: 'notHair',
-        confidence: 0.1,
-        detected_angle: label,
-        follicle_visibility: 'None',
-        message: 'Could not verify scalp photo. Please upload a clear photo of your scalp.',
-        details: 'API key or image data missing.',
-        source: 'fallback',
-      };
+      return unavailableImageVerification(label, 'Image data or AI service configuration is unavailable.');
     }
 
     const prompt = `
@@ -529,16 +487,7 @@ If rejected (non-hair, screenshot, or random object), return:
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        return {
-          is_hair: true,
-          status: 'hairDetected',
-          confidence: 0.88,
-          detected_angle: label,
-          follicle_visibility: 'Moderate',
-          message: 'Scalp photo registered for assessment.',
-          details: 'Verified by clinical rules engine.',
-          source: 'fallback',
-        };
+        return unavailableImageVerification(label);
       }
 
       const jsonResponse = await response.json();
@@ -546,21 +495,20 @@ If rejected (non-hair, screenshot, or random object), return:
       const parsed = this._parseJsonCandidate(candidateText);
 
       if (!parsed || typeof parsed !== 'object') {
-        return {
-          is_hair: true,
-          status: 'hairDetected',
-          confidence: 0.88,
-          detected_angle: label,
-          follicle_visibility: 'Moderate',
-          message: 'Scalp photo registered for assessment.',
-          details: 'Verified by clinical rules engine.',
-          source: 'fallback',
-        };
+        return unavailableImageVerification(label);
       }
 
+      const allowedStatuses = new Set(['hairDetected', 'notHair', 'lowClarity']);
+      if (!allowedStatuses.has(parsed.status)) return unavailableImageVerification(label);
+      if (parsed.status === 'hairDetected' && parsed.is_hair !== true) {
+        return unavailableImageVerification(label);
+      }
+      const isHair = parsed.status === 'hairDetected';
+      const status = parsed.status;
+
       return {
-        is_hair: parsed.is_hair !== false,
-        status: parsed.status || (parsed.is_hair ? 'hairDetected' : 'notHair'),
+        is_hair: isHair,
+        status,
         confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.92,
         detected_angle: parsed.detected_angle || label,
         follicle_visibility: parsed.follicle_visibility || 'Clear',
@@ -570,16 +518,7 @@ If rejected (non-hair, screenshot, or random object), return:
       };
     } catch (err) {
       clearTimeout(timeoutId);
-      return {
-        is_hair: true,
-        status: 'hairDetected',
-        confidence: 0.85,
-        detected_angle: label,
-        follicle_visibility: 'Moderate',
-        message: 'Scalp photo registered for assessment.',
-        details: 'Verified by clinical fallback.',
-        source: 'fallback',
-      };
+      return unavailableImageVerification(label);
     }
   }
 }

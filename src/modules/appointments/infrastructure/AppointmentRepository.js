@@ -61,7 +61,7 @@ export class AppointmentRepository {
     return store.appointments.filter((item) => Number(item.userId) === Number(userId)).sort((a, b) => b.starts_at.localeCompare(a.starts_at));
   }
 
-  async list({ from, to, status, limit = 500 } = {}) {
+  async list({ from, to, status, payment_status, limit = 500 } = {}) {
     const safeLimit = Math.max(1, Math.min(250, Number(limit) || 100));
     const filter = {};
     if (from || to) {
@@ -70,9 +70,10 @@ export class AppointmentRepository {
       if (to) filter.starts_at.$lte = to;
     }
     if (status) filter.status = status;
+    if (payment_status) filter.payment_status = payment_status;
     if (isMongoConnected()) return AppointmentModel.find(filter).sort({ starts_at: 1 }).limit(safeLimit).lean();
     return store.appointments
-      .filter((item) => (!from || item.starts_at >= from) && (!to || item.starts_at <= to) && (!status || item.status === status))
+      .filter((item) => (!from || item.starts_at >= from) && (!to || item.starts_at <= to) && (!status || item.status === status) && (!payment_status || item.payment_status === payment_status))
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
       .slice(0, safeLimit);
   }

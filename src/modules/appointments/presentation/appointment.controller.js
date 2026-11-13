@@ -509,7 +509,13 @@ export class AppointmentController {
 
   listAdmin = async (req, res, next) => {
     try {
-      const items = await this.appointmentRepository.list({ from: req.query.from, to: req.query.to, status: req.query.status, limit: req.query.limit });
+      const items = await this.appointmentRepository.list({
+        from: req.query.from,
+        to: req.query.to,
+        status: req.query.status,
+        payment_status: req.query.payment_status,
+        limit: req.query.limit,
+      });
       return sendSuccess(res, { data: { items: await this.serializeMany(items) } });
     } catch (error) { next(error); }
   };
@@ -523,19 +529,55 @@ export class AppointmentController {
       await this.validateSlot(starts_at);
       const reason = String(req.body?.reason || 'Clinic consultation').trim().slice(0, 500);
       const actor = String(req.user?.email || req.user?.login || 'Clinic admin');
+
+      const billing = await this.getBillingConfig();
+      const consultation_fee = req.body?.consultation_fee != null
+        ? Math.max(0, Number(req.body.consultation_fee))
+        : (billing.consultation_fee ?? 500);
+      const payment_status = ['Pending', 'Paid', 'Refunded', 'Waived'].includes(req.body?.payment_status)
+        ? req.body.payment_status
+        : 'Pending';
+      const payment_method = req.body?.payment_method
+        ? String(req.body.payment_method).trim().slice(0, 50)
+        : (payment_status === 'Paid' ? 'Cash' : 'Pay at clinic');
+      const payment_transaction_id = req.body?.payment_transaction_id
+        ? String(req.body.payment_transaction_id).trim().slice(0, 100)
+        : null;
+
       const appointment = await this.appointmentRepository.create({
-        userId: Number(patient.id), patient_code: patient.patient_code, starts_at, reason,
+        userId: Number(patient.id),
+        patient_code: patient.patient_code,
+        starts_at,
+        reason,
+        consultation_fee,
+        payment_status,
+        payment_method,
+        payment_transaction_id,
+        payment_time: payment_status === 'Paid' ? new Date() : null,
         source: ['App', 'Phone', 'WhatsApp', 'Reception'].includes(req.body?.source) ? req.body.source : 'Reception',
         status: 'Confirmed',
-        status_history: [{ action: 'scheduled by clinic', status: 'Confirmed', changed_by: actor, starts_at }],
+        status_history: [{
+          action: `scheduled by clinic (Payment: ${payment_status} · ₹${consultation_fee} ${payment_method})`,
+          status: 'Confirmed',
+          changed_by: actor,
+          starts_at,
+        }],
       });
-      await this.patientActivityRepository.record({ userId: patient.id, patientCode: patient.patient_code, type: 'appointment', title: 'Clinic appointment scheduled', summary: `${reason} · ${starts_at}`, actor, metadata: { appointment_id: appointment.id } });
+      await this.patientActivityRepository.record({
+        userId: patient.id,
+        patientCode: patient.patient_code,
+        type: 'appointment',
+        title: 'Clinic appointment scheduled',
+        summary: `${reason} · ${starts_at}`,
+        actor,
+        metadata: { appointment_id: appointment.id },
+      });
       if (this.auditEventRepository?.record) {
         await this.auditEventRepository.record({
           actor,
           action: 'appointment.created',
           target: `appointment:${appointment.id}`,
-          metadata: { patient_id: patient.id, starts_at, reason },
+          metadata: { patient_id: patient.id, starts_at, reason, payment_status, consultation_fee },
         }).catch(() => null);
       }
       return sendSuccess(res, { message: 'Clinic appointment scheduled.', data: this.serialize(appointment, patient), statusCode: 201 });
@@ -591,7 +633,7 @@ export class AppointmentController {
         } else {
           event = { action: `status changed to ${body.status}`, status: body.status, changed_by: actor };
         }
-      } else if (!body.payment_status) {
+      } else if (!body.payment_status && !body.payment_method && body.consultation_fee == null) {
         throw new BadRequestError('Provide a valid appointment status, payment_status, or action=reschedule.');
       }
 
@@ -603,10 +645,23 @@ export class AppointmentController {
         if (body.payment_status === 'Paid') {
           patch.payment_time = new Date();
         }
-        const payAction = `payment marked ${body.payment_status}`;
+        if (body.payment_method) {
+          patch.payment_method = String(body.payment_method).trim().slice(0, 50);
+        }
+        if (body.payment_transaction_id !== undefined) {
+          patch.payment_transaction_id = body.payment_transaction_id ? String(body.payment_transaction_id).trim().slice(0, 100) : null;
+        }
+        if (body.consultation_fee != null) {
+          patch.consultation_fee = Math.max(0, Number(body.consultation_fee));
+        }
+        const payAction = `payment marked ${body.payment_status}${body.payment_method ? ` via ${body.payment_method}` : ''}${body.payment_transaction_id ? ` (Txn: ${body.payment_transaction_id})` : ''}`;
         event = event
           ? { ...event, action: `${event.action} · ${payAction}` }
           : { action: payAction, status: appointment.status, changed_by: actor };
+      } else if (body.payment_method || body.consultation_fee != null) {
+        if (body.payment_method) patch.payment_method = String(body.payment_method).trim().slice(0, 50);
+        if (body.consultation_fee != null) patch.consultation_fee = Math.max(0, Number(body.consultation_fee));
+        event = event || { action: 'payment details updated', status: appointment.status, changed_by: actor };
       }
       const updated = await this.appointmentRepository.update(appointment.id, patch, event);
       await this.patientActivityRepository.record({ userId: appointment.userId, patientCode: appointment.patient_code, type: 'appointment', title: event.action, summary: patch.starts_at || appointment.starts_at, actor, metadata: { appointment_id: appointment.id } });

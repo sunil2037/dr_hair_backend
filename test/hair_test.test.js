@@ -16,6 +16,35 @@ describe('Hair Test & Treatment Modules - Clean Architecture Tests', () => {
     }),
   };
 
+  const mockAiAssessment = {
+    ai_status: 'available',
+    scalp_health_score: 75,
+    stage_classification: 'Norwood Stage 2',
+    summary: 'Mild temporal recession with healthy crown follicles.',
+    root_causes: [{ factor: 'Stress', severity: 'Moderate', explanation: 'Reported high stress.' }],
+    diet_plan: {
+      summary: 'Protein-rich balanced diet',
+      foods_to_eat: ['Almonds', 'Eggs'],
+      foods_to_avoid: ['Refined Sugar'],
+      hydration_target: '2.5L daily',
+      key_nutrients: ['Iron', 'Zinc'],
+    },
+    lifestyle_guidance: {
+      scalp_care_tips: ['Wash hair 3 times a week'],
+      habits_to_avoid: ['Hot showers'],
+      sleep_stress_advice: 'Aim for 7-8 hours sleep',
+    },
+    recommended_regimen: {
+      summary: 'Daily gentle cleansing & nourishment',
+      daily_steps: [{ time_of_day: 'Morning', action: 'Apply mild serum', frequency: 'Daily' }],
+      target_products: [{ category: 'Hair Care', rationale: 'Mild scalp shampoo' }],
+    },
+    next_step_recommendation: { type: 'products', reason: 'Self-care regimen' },
+    generated_by: 'Dr. Hair Assistant (gemini-3.5-flash-lite)',
+    generated_at: new Date().toISOString(),
+  };
+  container.services.geminiAiService.generateHairTestAssessment = async () => mockAiAssessment;
+
   let createdReferenceNo = '';
 
   it('should submit a multi-step hair test with scalp photos', async () => {

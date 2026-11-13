@@ -4,7 +4,7 @@ import { GeminiAiService } from '../src/modules/ai/infrastructure/GeminiAiServic
 import { config } from '../src/config/env.js';
 
 describe('GeminiAiService Unit & Integration Tests', () => {
-  it('should generate fallback assessment when no API key is provided', async () => {
+  it('should not invent a score, stage, or product plan when no API key is provided', async () => {
     const service = new GeminiAiService({ apiKey: '' });
     const result = await service.generateHairTestAssessment({
       gender: 'Male',
@@ -15,16 +15,26 @@ describe('GeminiAiService Unit & Integration Tests', () => {
     });
 
     assert.ok(result);
-    assert.equal(typeof result.scalp_health_score, 'number');
-    assert.ok(result.scalp_health_score >= 20 && result.scalp_health_score <= 100);
-    assert.ok(result.stage_classification.includes('Norwood'));
-    assert.ok(Array.isArray(result.root_causes));
-    assert.ok(result.root_causes.length > 0);
-    assert.ok(result.diet_plan.foods_to_eat.length > 0);
-    assert.ok(result.diet_plan.foods_to_avoid.length > 0);
-    assert.ok(result.lifestyle_guidance.scalp_care_tips.length > 0);
-    assert.ok(result.recommended_regimen.daily_steps.length > 0);
-    assert.equal(result.generated_by, 'clinical-rules-engine');
+    assert.equal(result.ai_status, 'unavailable');
+    assert.equal(result.scalp_health_score, null);
+    assert.equal(result.stage_classification, null);
+    assert.deepEqual(result.root_causes, []);
+    assert.deepEqual(result.recommended_regimen.daily_steps, []);
+    assert.deepEqual(result.recommended_regimen.target_products, []);
+    assert.equal(result.next_step_recommendation.type, 'unavailable');
+    assert.equal(result.generated_by, 'unavailable');
+  });
+
+  it('should direct reported rapid or patchy loss to a clinician if AI is unavailable', async () => {
+    const service = new GeminiAiService({ apiKey: '' });
+    const result = await service.generateHairTestAssessment({
+      hair_fall_increasing: 'Yes',
+      hair_fall_pattern: 'Patchy hair loss',
+    });
+
+    assert.equal(result.ai_status, 'unavailable');
+    assert.equal(result.next_step_recommendation.type, 'doctor_appointment');
+    assert.match(result.next_step_recommendation.reason, /clinician/i);
   });
 
   it('should parse valid JSON returned from mocked Gemini API', async () => {
@@ -81,6 +91,7 @@ describe('GeminiAiService Unit & Integration Tests', () => {
     assert.equal(result.scalp_health_score, 82);
     assert.equal(result.stage_classification, 'Norwood Stage 2');
     assert.ok(result.generated_by.includes('Dr. Hair Assistant'));
+    assert.equal(result.ai_status, 'available');
     assert.equal(result.root_causes[0].factor, 'DHT Sensitivity');
   });
 
@@ -99,7 +110,12 @@ describe('GeminiAiService Unit & Integration Tests', () => {
         return {
           ok: true,
           json: async () => ({
-            candidates: [{ content: { parts: [{ text: JSON.stringify({ scalp_health_score: 81 }) }] } }],
+            candidates: [{ content: { parts: [{ text: JSON.stringify({
+              scalp_health_score: 81,
+              stage_classification: 'Reported thinning pattern',
+              summary: 'A non-diagnostic screening summary.',
+              recommended_regimen: { daily_steps: [] },
+            }) }] } }],
           }),
         };
       },
@@ -138,7 +154,12 @@ describe('GeminiAiService Unit & Integration Tests', () => {
         return {
           ok: true,
           json: async () => ({
-            candidates: [{ content: { parts: [{ text: JSON.stringify({ scalp_health_score: 81 }) }] } }],
+            candidates: [{ content: { parts: [{ text: JSON.stringify({
+              scalp_health_score: 81,
+              stage_classification: 'Reported thinning pattern',
+              summary: 'A non-diagnostic screening summary.',
+              recommended_regimen: { daily_steps: [] },
+            }) }] } }],
           }),
         };
       },
@@ -150,7 +171,7 @@ describe('GeminiAiService Unit & Integration Tests', () => {
     assert.equal(result.generated_by, 'Dr. Hair Assistant (fallback-model)');
   });
 
-  it('should gracefully fall back when mock Gemini API returns 500 or network fails', async () => {
+  it('should return unavailable without fabricated results when Gemini fails', async () => {
     const mockFailingFetch = async () => ({
       ok: false,
       status: 500,
@@ -164,9 +185,10 @@ describe('GeminiAiService Unit & Integration Tests', () => {
 
     const result = await service.generateHairTestAssessment({ gender: 'Female' });
     assert.ok(result);
-    assert.equal(typeof result.scalp_health_score, 'number');
-    assert.ok(result.stage_classification.includes('Ludwig'));
-    assert.equal(result.generated_by, 'clinical-rules-engine');
+    assert.equal(result.ai_status, 'unavailable');
+    assert.equal(result.scalp_health_score, null);
+    assert.equal(result.stage_classification, null);
+    assert.deepEqual(result.recommended_regimen.target_products, []);
   });
 
   if (config.gemini?.apiKey) {
