@@ -16,8 +16,8 @@ export class GenerateHairTestAiAssessmentUseCase {
       throw new NotFoundError('Assessment not found for that reference number.');
     }
 
-    // Verify ownership if userId is provided
-    if (userId && hairTest.userId && String(hairTest.userId) !== String(userId)) {
+    // AI assessment is patient-facing and must never expose unowned legacy records.
+    if (!userId || !hairTest.userId || String(hairTest.userId) !== String(userId)) {
       throw new UnauthorizedError('You are not authorized to access this assessment.');
     }
 

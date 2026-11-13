@@ -52,6 +52,7 @@ import { DeleteAccountUseCase } from './modules/users/application/DeleteAccountU
 import { SubmitHairTestUseCase } from './modules/hair_test/application/SubmitHairTestUseCase.js';
 import { GetHairTestsUseCase } from './modules/hair_test/application/GetHairTestsUseCase.js';
 import { GenerateHairTestAiAssessmentUseCase } from './modules/hair_test/application/GenerateHairTestAiAssessmentUseCase.js';
+import { DetectScalpImageUseCase } from './modules/hair_test/application/DetectScalpImageUseCase.js';
 import { GetTreatmentHistoryUseCase } from './modules/treatment/application/GetTreatmentHistoryUseCase.js';
 import { GetReviewsUseCase } from './modules/review/application/GetReviewsUseCase.js';
 import { CreateReviewUseCase } from './modules/review/application/CreateReviewUseCase.js';
@@ -261,7 +262,7 @@ export const createContainer = (overrides = {}) => {
     userRepository,
   });
 
-  const geminiAiService = overrides.geminiAiService || new GeminiAiService();
+  const geminiAiService = overrides.geminiAiService || new GeminiAiService({ imageStorage });
 
   const submitHairTestUseCase = new SubmitHairTestUseCase({
     hairTestRepository,
@@ -276,6 +277,10 @@ export const createContainer = (overrides = {}) => {
 
   const generateHairTestAiAssessmentUseCase = new GenerateHairTestAiAssessmentUseCase({
     hairTestRepository,
+    geminiAiService,
+  });
+
+  const detectScalpImageUseCase = new DetectScalpImageUseCase({
     geminiAiService,
   });
 
@@ -388,6 +393,7 @@ export const createContainer = (overrides = {}) => {
     submitHairTestUseCase,
     getHairTestsUseCase,
     generateHairTestAiAssessmentUseCase,
+    detectScalpImageUseCase,
   });
 
   const treatmentController = new TreatmentController({
@@ -586,6 +592,7 @@ export const createContainer = (overrides = {}) => {
       submitHairTestUseCase,
       getHairTestsUseCase,
       generateHairTestAiAssessmentUseCase,
+      detectScalpImageUseCase,
       getTreatmentHistoryUseCase,
       getReviewsUseCase,
       createReviewUseCase,

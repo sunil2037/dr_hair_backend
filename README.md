@@ -36,6 +36,8 @@ Clinical assessment and progress photos now upload as Cloudinary `authenticated`
 
 Keep `.env` private and out of Git. The current `.gitignore` excludes it. Render secrets belong in the Render environment settings, not in the Blueprint or source code.
 
+When Gemini is configured, the backend sends assessment answers and up to two authenticated scalp photos to Google's Gemini API to generate the assessment. Configure this integration only where the applicable patient notice, consent, and data-handling requirements are in place. The AI output is a screening aid and does not replace review by a qualified clinician.
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -52,6 +54,8 @@ Keep `.env` private and out of Git. The current `.gitignore` excludes it. Render
 | `CORS_ORIGINS` | Comma-separated exact browser origins for the admin panel |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Cloudinary server credentials |
 | `CLOUDINARY_IMAGE_FOLDER`, `CLOUDINARY_VIDEO_FOLDER` | Cloudinary folders |
+| `GEMINI_API_KEY` | Server-side Google AI Studio key for hair assessment analysis; leave unset to use the local fallback |
+| `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` | Primary and fallback Gemini model IDs |
 | `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Firebase Admin service-account credentials for FCM |
 | `OTP_EXPIRY_MINUTES` | OTP validity window |
 

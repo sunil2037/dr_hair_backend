@@ -1,10 +1,16 @@
 import { sendSuccess } from '../../../shared/utils/response.js';
 
 export class HairTestController {
-  constructor({ submitHairTestUseCase, getHairTestsUseCase, generateHairTestAiAssessmentUseCase }) {
+  constructor({
+    submitHairTestUseCase,
+    getHairTestsUseCase,
+    generateHairTestAiAssessmentUseCase,
+    detectScalpImageUseCase,
+  }) {
     this.submitHairTestUseCase = submitHairTestUseCase;
     this.getHairTestsUseCase = getHairTestsUseCase;
     this.generateHairTestAiAssessmentUseCase = generateHairTestAiAssessmentUseCase;
+    this.detectScalpImageUseCase = detectScalpImageUseCase;
   }
 
   submitForm = async (req, res, next) => {
@@ -63,6 +69,29 @@ export class HairTestController {
           ai_assessment: result.ai_assessment,
           test: result.test,
         },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  detectScalpImage = async (req, res, next) => {
+    try {
+      const file = req.file || req.files?.image?.[0] || req.files?.photo?.[0];
+      const base64Data = req.body?.image_base64 || req.body?.base64;
+      const label = req.body?.label || 'Scalp';
+      const mimeType = file?.mimetype || req.body?.mime_type || 'image/jpeg';
+
+      const result = await this.detectScalpImageUseCase.execute({
+        imageBuffer: file?.buffer,
+        base64Data,
+        mimeType,
+        label,
+      });
+
+      return sendSuccess(res, {
+        message: result.message,
+        data: result,
       });
     } catch (err) {
       next(err);

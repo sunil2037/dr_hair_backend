@@ -80,8 +80,74 @@ describe('GeminiAiService Unit & Integration Tests', () => {
     const result = await service.generateHairTestAssessment({ gender: 'Male' });
     assert.equal(result.scalp_health_score, 82);
     assert.equal(result.stage_classification, 'Norwood Stage 2');
-    assert.ok(result.generated_by.includes('gemini-ai'));
+    assert.ok(result.generated_by.includes('Dr. Hair Assistant'));
     assert.equal(result.root_causes[0].factor, 'DHT Sensitivity');
+  });
+
+  it('should attach up to two owned private scalp photos to the Gemini request', async () => {
+    let sentParts = [];
+    const service = new GeminiAiService({
+      apiKey: 'test-fake-key',
+      imageStorage: {
+        downloadAuthenticatedImage: async (publicId) => ({
+          data: `encoded-${publicId}`,
+          mimeType: 'image/jpeg',
+        }),
+      },
+      fetchFn: async (_url, options) => {
+        sentParts = JSON.parse(options.body).contents[0].parts;
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: JSON.stringify({ scalp_health_score: 81 }) }] } }],
+          }),
+        };
+      },
+      logger: { warn() {}, error() {} },
+    });
+
+    await service.generateHairTestAssessment({
+      scalp_photos: [
+        { file_name: 'assessment/front', format: 'jpg', delivery_type: 'authenticated' },
+        { file_name: 'assessment/top', format: 'jpg', delivery_type: 'authenticated' },
+        { file_name: 'assessment/third', format: 'jpg', delivery_type: 'authenticated' },
+        { file_name: 'assessment/public', format: 'jpg', delivery_type: 'upload' },
+      ],
+    });
+
+    const imageParts = sentParts.filter((part) => part.inline_data);
+    assert.equal(imageParts.length, 2);
+    assert.deepEqual(imageParts.map((part) => part.inline_data.data), [
+      'encoded-assessment/front',
+      'encoded-assessment/top',
+    ]);
+  });
+
+  it('should use the configured fallback model when the primary model is unavailable', async () => {
+    const models = [];
+    const service = new GeminiAiService({
+      apiKey: 'test-fake-key',
+      model: 'primary-model',
+      fallbackModel: 'fallback-model',
+      fetchFn: async (url) => {
+        const model = decodeURIComponent(url.match(/models\/([^:]+)/)[1]);
+        models.push(model);
+        if (model === 'primary-model') {
+          return { ok: false, status: 404, text: async () => 'not found' };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: JSON.stringify({ scalp_health_score: 81 }) }] } }],
+          }),
+        };
+      },
+      logger: { warn() {}, error() {} },
+    });
+
+    const result = await service.generateHairTestAssessment({});
+    assert.deepEqual(models, ['primary-model', 'fallback-model']);
+    assert.equal(result.generated_by, 'Dr. Hair Assistant (fallback-model)');
   });
 
   it('should gracefully fall back when mock Gemini API returns 500 or network fails', async () => {
@@ -132,6 +198,20 @@ describe('GeminiAiService Unit & Integration Tests', () => {
         generated_by: result.generated_by,
         root_causes_count: result.root_causes.length,
       });
+    });
+
+    it('should test detectHairAndScalpImage with Gemini vision', async () => {
+      const service = new GeminiAiService();
+      const tinyPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+      const detection = await service.detectHairAndScalpImage({
+        base64Data: tinyPng,
+        mimeType: 'image/png',
+        label: 'Front Hairline',
+      });
+      assert.ok(detection);
+      assert.equal(typeof detection.is_hair, 'boolean');
+      assert.ok(detection.status);
+      assert.ok(detection.message);
     });
   }
 });

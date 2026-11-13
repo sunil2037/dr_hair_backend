@@ -23,6 +23,10 @@ const uploadBuffer = (buffer, options) =>
   });
 
 export class CloudinaryImageStorage {
+  constructor({ fetchFn = globalThis.fetch } = {}) {
+    this.fetchFn = fetchFn;
+  }
+
   async uploadImage(buffer, subfolder, publicId, { deliveryType = 'upload' } = {}) {
     if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
       throw new Error('An image buffer is required for Cloudinary upload.');
@@ -67,5 +71,57 @@ export class CloudinaryImageStorage {
 
   async getAuthenticatedImage(publicId) {
     return getCloudinaryClient().api.resource(publicId, { resource_type: 'image', type: 'authenticated' });
+  }
+
+  async downloadAuthenticatedImage(publicId, format, { maxBytes = 2 * 1024 * 1024 } = {}) {
+    const downloadUrl = this.createPrivateDownloadUrl(publicId, format);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const response = await this.fetchFn(downloadUrl, { signal: controller.signal });
+      if (!response.ok) throw new Error('Private image download failed.');
+
+      const declaredLength = Number(response.headers?.get?.('content-length'));
+      if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+        throw new Error('Private image exceeds the AI analysis size limit.');
+      }
+
+      let data;
+      if (response.body?.getReader) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let length = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          length += value.byteLength;
+          if (length > maxBytes) {
+            await reader.cancel();
+            throw new Error('Private image exceeds the AI analysis size limit.');
+          }
+          chunks.push(Buffer.from(value));
+        }
+        data = Buffer.concat(chunks, length);
+      } else {
+        data = Buffer.from(await response.arrayBuffer());
+      }
+      if (data.length === 0 || data.length > maxBytes) {
+        throw new Error('Private image is empty or exceeds the AI analysis size limit.');
+      }
+
+      const mimeByFormat = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        webp: 'image/webp',
+      };
+      const mimeType = mimeByFormat[String(format).toLowerCase()];
+      if (!mimeType) throw new Error('Private image format is not supported for AI analysis.');
+
+      return { data: data.toString('base64'), mimeType };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }
