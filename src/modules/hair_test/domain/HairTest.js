@@ -49,6 +49,8 @@ export class HairTest {
     hair_loss_stage,
     // Scalp Photos
     scalp_photos = [],
+    // AI Clinical Assessment
+    ai_assessment = null,
   }) {
     this.id = id;
     this.userId = userId;
@@ -91,6 +93,7 @@ export class HairTest {
     this.looking_for = looking_for;
     this.hair_loss_stage = hair_loss_stage;
     this.scalp_photos = scalp_photos;
+    this.ai_assessment = ai_assessment;
   }
 
   toSummary() {
@@ -102,6 +105,7 @@ export class HairTest {
       created_at: this.created_at,
       hair_loss_stage: this.hair_loss_stage,
       scalp_photos: this.scalp_photos,
+      ai_assessment: this.ai_assessment,
     };
   }
 }

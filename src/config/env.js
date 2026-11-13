@@ -133,4 +133,9 @@ export const config = {
     apiKey: process.env.FAST2SMS_API_KEY?.trim() || '',
     route: process.env.FAST2SMS_ROUTE?.trim() || 'otp',
   },
+
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY?.trim() || '',
+    model: process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite',
+  },
 };

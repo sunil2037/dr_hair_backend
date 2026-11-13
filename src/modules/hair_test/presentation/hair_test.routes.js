@@ -21,6 +21,13 @@ export const createHairTestRouter = ({ hairTestController }) => {
   // POST /HairTest/hair_test
   router.post('/hair_test', authenticateToken, requireRegisteredUser, hairTestController.getHairTests);
 
+  // AI Assessment routes:
+  // POST /HairTest/ai_assessment
+  router.post('/ai_assessment', authenticateToken, requireRegisteredUser, hairTestController.generateAiAssessment);
+
+  // POST /HairTest/:referenceNo/ai_assessment
+  router.post('/:referenceNo/ai_assessment', authenticateToken, requireRegisteredUser, hairTestController.generateAiAssessment);
+
   return router;
 };
 

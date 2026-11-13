@@ -251,6 +251,22 @@ export class HairTestRepository extends IHairTestRepository {
     return false;
   }
 
+  async saveAiAssessment(referenceNo, aiAssessment) {
+    if (isMongoConnected()) {
+      const record = await HairTestModel.findOneAndUpdate(
+        { reference_no: referenceNo },
+        { $set: { ai_assessment: aiAssessment } },
+        { new: true },
+      ).lean();
+      return toHairTest(record);
+    }
+
+    const test = store.hairTests.find((t) => t.reference_no === referenceNo);
+    if (!test) return null;
+    test.ai_assessment = aiAssessment;
+    return new HairTest(test);
+  }
+
   async list({ page = 1, limit = 25, status } = {}) {
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));

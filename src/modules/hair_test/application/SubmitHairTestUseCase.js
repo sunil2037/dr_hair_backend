@@ -2,9 +2,10 @@ import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index
 import { config } from '../../../config/env.js';
 
 export class SubmitHairTestUseCase {
-  constructor({ hairTestRepository, imageStorage }) {
+  constructor({ hairTestRepository, imageStorage, geminiAiService }) {
     this.hairTestRepository = hairTestRepository;
     this.imageStorage = imageStorage;
+    this.geminiAiService = geminiAiService;
   }
 
   async execute({ userId, formData, files = {} }) {
@@ -157,6 +158,16 @@ export class SubmitHairTestUseCase {
       throw error;
     }
 
+    let aiAssessment = null;
+    if (this.geminiAiService) {
+      try {
+        aiAssessment = await this.geminiAiService.generateHairTestAssessment(formData);
+      } catch (aiErr) {
+        // AI failure must never break patient submission; fallback or null is handled safely
+        aiAssessment = null;
+      }
+    }
+
     let hairTest;
     try {
       hairTest = await this.hairTestRepository.create({
@@ -197,6 +208,7 @@ export class SubmitHairTestUseCase {
         looking_for: formData.looking_for,
         hair_loss_stage: formData.hair_loss_stage || formData.stage,
         scalp_photos: scalpPhotos,
+        ai_assessment: aiAssessment,
       });
 
       if (userId && this.hairTestRepository?.deleteDraft) {
@@ -211,6 +223,7 @@ export class SubmitHairTestUseCase {
       message: 'Hair test submitted successfully.',
       reference_no: hairTest.reference_no,
       test: hairTest,
+      ai_assessment: hairTest.ai_assessment || aiAssessment,
     };
   }
 }

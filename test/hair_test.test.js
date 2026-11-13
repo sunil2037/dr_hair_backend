@@ -59,7 +59,23 @@ describe('Hair Test & Treatment Modules - Clean Architecture Tests', () => {
 
     assert.equal(result.message, 'Hair test submitted successfully.');
     assert.ok(result.reference_no.startsWith('HT-'));
+    assert.ok(result.test.ai_assessment);
+    assert.equal(typeof result.test.ai_assessment.scalp_health_score, 'number');
+    assert.ok(result.test.ai_assessment.diet_plan.foods_to_eat.length > 0);
     createdReferenceNo = result.reference_no;
+  });
+
+  it('should generate on-demand AI assessment for an existing hair test', async () => {
+    const aiResult = await container.useCases.generateHairTestAiAssessmentUseCase.execute({
+      userId: 12,
+      referenceNo: createdReferenceNo,
+    });
+
+    assert.ok(aiResult.ai_assessment);
+    assert.equal(typeof aiResult.ai_assessment.scalp_health_score, 'number');
+    assert.ok(aiResult.ai_assessment.root_causes.length > 0);
+    assert.ok(aiResult.ai_assessment.lifestyle_guidance.scalp_care_tips.length > 0);
+    assert.ok(aiResult.ai_assessment.recommended_regimen.target_products.length > 0);
   });
 
   it('should retrieve user hair tests history', async () => {

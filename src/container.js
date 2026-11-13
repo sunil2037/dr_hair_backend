@@ -31,6 +31,7 @@ import { PaymentGatewayService } from './modules/commerce/infrastructure/Payment
 import { FeatureFlagRepository } from './modules/admin/infrastructure/FeatureFlagRepository.js';
 import { AppReleasePolicyRepository } from './modules/admin/infrastructure/AppReleasePolicyRepository.js';
 import { SupportInquiryRepository } from './modules/support/infrastructure/SupportInquiryRepository.js';
+import { GeminiAiService } from './modules/ai/infrastructure/GeminiAiService.js';
 
 // Use Cases
 import { SendOtpUseCase } from './modules/auth/application/SendOtpUseCase.js';
@@ -50,6 +51,7 @@ import { UpdateProfilePictureUseCase } from './modules/users/application/UpdateP
 import { DeleteAccountUseCase } from './modules/users/application/DeleteAccountUseCase.js';
 import { SubmitHairTestUseCase } from './modules/hair_test/application/SubmitHairTestUseCase.js';
 import { GetHairTestsUseCase } from './modules/hair_test/application/GetHairTestsUseCase.js';
+import { GenerateHairTestAiAssessmentUseCase } from './modules/hair_test/application/GenerateHairTestAiAssessmentUseCase.js';
 import { GetTreatmentHistoryUseCase } from './modules/treatment/application/GetTreatmentHistoryUseCase.js';
 import { GetReviewsUseCase } from './modules/review/application/GetReviewsUseCase.js';
 import { CreateReviewUseCase } from './modules/review/application/CreateReviewUseCase.js';
@@ -259,14 +261,22 @@ export const createContainer = (overrides = {}) => {
     userRepository,
   });
 
+  const geminiAiService = overrides.geminiAiService || new GeminiAiService();
+
   const submitHairTestUseCase = new SubmitHairTestUseCase({
     hairTestRepository,
     imageStorage,
+    geminiAiService,
   });
 
   const getHairTestsUseCase = new GetHairTestsUseCase({
     hairTestRepository,
     imageStorage,
+  });
+
+  const generateHairTestAiAssessmentUseCase = new GenerateHairTestAiAssessmentUseCase({
+    hairTestRepository,
+    geminiAiService,
   });
 
   const getTreatmentHistoryUseCase = new GetTreatmentHistoryUseCase({
@@ -377,6 +387,7 @@ export const createContainer = (overrides = {}) => {
   const hairTestController = new HairTestController({
     submitHairTestUseCase,
     getHairTestsUseCase,
+    generateHairTestAiAssessmentUseCase,
   });
 
   const treatmentController = new TreatmentController({
@@ -554,6 +565,7 @@ export const createContainer = (overrides = {}) => {
       patientArchiveService,
       campaignSchedulerService,
       paymentGatewayService,
+      geminiAiService,
     },
     useCases: {
       sendOtpUseCase,
@@ -573,6 +585,7 @@ export const createContainer = (overrides = {}) => {
       deleteAccountUseCase,
       submitHairTestUseCase,
       getHairTestsUseCase,
+      generateHairTestAiAssessmentUseCase,
       getTreatmentHistoryUseCase,
       getReviewsUseCase,
       createReviewUseCase,

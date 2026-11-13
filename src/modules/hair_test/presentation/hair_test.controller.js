@@ -1,9 +1,10 @@
 import { sendSuccess } from '../../../shared/utils/response.js';
 
 export class HairTestController {
-  constructor({ submitHairTestUseCase, getHairTestsUseCase }) {
+  constructor({ submitHairTestUseCase, getHairTestsUseCase, generateHairTestAiAssessmentUseCase }) {
     this.submitHairTestUseCase = submitHairTestUseCase;
     this.getHairTestsUseCase = getHairTestsUseCase;
+    this.generateHairTestAiAssessmentUseCase = generateHairTestAiAssessmentUseCase;
   }
 
   submitForm = async (req, res, next) => {
@@ -23,6 +24,7 @@ export class HairTestController {
         data: {
           reference_no: result.reference_no,
           test: result.test,
+          ai_assessment: result.ai_assessment,
         },
         extra: {
           reference_no: result.reference_no,
@@ -39,6 +41,29 @@ export class HairTestController {
       const data = await this.getHairTestsUseCase.execute({ userId });
 
       return sendSuccess(res, { data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  generateAiAssessment = async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const referenceNo = req.params?.referenceNo || req.body?.reference_no;
+
+      const result = await this.generateHairTestAiAssessmentUseCase.execute({
+        userId,
+        referenceNo,
+      });
+
+      return sendSuccess(res, {
+        message: result.message,
+        data: {
+          reference_no: result.reference_no,
+          ai_assessment: result.ai_assessment,
+          test: result.test,
+        },
+      });
     } catch (err) {
       next(err);
     }

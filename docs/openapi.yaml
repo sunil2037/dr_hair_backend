@@ -725,6 +725,49 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/ServerError' }
 
+  /api/v1/hair-tests/ai_assessment:
+    post:
+      tags: [Hair tests]
+      summary: Generate or retrieve AI clinical hair test assessment and recommendations
+      x-legacy-path: /HairTest/ai_assessment
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference_no]
+              properties:
+                reference_no:
+                  type: string
+                  example: HT-2026-0042
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/hair-tests/{referenceNo}/ai_assessment:
+    post:
+      tags: [Hair tests]
+      summary: Generate or retrieve AI clinical hair test assessment by reference number
+      x-legacy-path: /HairTest/{referenceNo}/ai_assessment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: referenceNo
+          in: path
+          required: true
+          schema: { type: string }
+          example: HT-2026-0042
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
   /api/v1/treatments/get_treatment_history/{reference_no}:
     get:
       tags: [Treatments]
