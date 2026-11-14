@@ -160,7 +160,7 @@ export class CommerceController {
       const payload = req.body;
 
       const isValid = this.paymentGatewayService.verifyWebhookSignature({
-        payload,
+        rawBody: req.rawBody,
         signature,
       });
 
@@ -168,6 +168,9 @@ export class CommerceController {
         throw new BadRequestError('Invalid webhook signature');
       }
 
+      if (!payload || typeof payload !== 'object' || typeof payload.event !== 'string') {
+        throw new BadRequestError('Invalid Razorpay webhook payload');
+      }
       const event = payload.event;
       if (event === 'payment.captured' || event === 'order.paid') {
         const paymentEntity = payload.payload?.payment?.entity || {};
@@ -389,7 +392,7 @@ export class CommerceController {
         orderId,
         amount: amount !== undefined ? amount : null,
         reason: reason || 'Customer refund',
-        restockInventory: restock_inventory ?? restockInventory ?? true,
+        restockInventory: restock_inventory ?? restockInventory ?? false,
         actor: { id: req.admin?.id || 'admin', type: 'admin' },
       });
 

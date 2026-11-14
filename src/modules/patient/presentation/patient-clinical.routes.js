@@ -1,11 +1,28 @@
 import { Router } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { authenticateToken } from '../../../shared/middlewares/auth.middleware.js';
 import { requireRegisteredUser } from '../../../shared/middlewares/registered-user.middleware.js';
 import { uploadScalpPhotos } from '../../../shared/middlewares/upload.middleware.js';
+import { createRateLimitStore } from '../../../shared/middlewares/rate-limit-store.js';
+import { sendError } from '../../../shared/utils/response.js';
 
-export const createPatientClinicalRouter = ({ patientClinicalController, appointmentController, treatmentController }) => {
+export const createPatientClinicalRouter = ({ patientClinicalController, appointmentController, treatmentController, patientAssistantController }) => {
   const router = Router();
   router.use(authenticateToken, requireRegisteredUser);
+
+  const assistantChatLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 8,
+    keyGenerator: (req) => `patient:${req.user.id}`,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    store: createRateLimitStore('patient-ai-chat'),
+    passOnStoreError: true,
+    handler: (_req, res) => sendError(res, {
+      message: 'You have sent several messages. Please wait a minute before trying again.',
+      statusCode: 429,
+    }),
+  });
 
   const scalpUploadFields = uploadScalpPhotos.fields([
     { name: 'photo_front', maxCount: 1 },
@@ -17,6 +34,9 @@ export const createPatientClinicalRouter = ({ patientClinicalController, appoint
 
   router.get('/clinical-record', patientClinicalController.getClinicalRecord);
   router.get('/home-summary', patientClinicalController.getHomeSummary);
+  if (patientAssistantController?.streamChat) {
+    router.post('/assistant/chat', assistantChatLimiter, patientAssistantController.streamChat);
+  }
   router.get('/care-events', patientClinicalController.listCareEvents);
   router.put('/care-events', patientClinicalController.saveCareEvent);
   if (treatmentController?.getPatientDietPlan) {

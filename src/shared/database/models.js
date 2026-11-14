@@ -592,6 +592,8 @@ const orderSchema = new Schema(
       paid_at: { type: Date, default: null },
       refund_id: { type: String, default: null },
       refund_amount: { type: Number, default: 0 },
+      refund_status: { type: String, enum: ['', 'pending', 'processed', 'failed'], default: '' },
+      refund_pending_amount: { type: Number, default: 0 },
       refunded_at: { type: Date, default: null },
     },
     fulfillment: {

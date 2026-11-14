@@ -7,7 +7,9 @@ export class PaymentGatewayService {
   constructor({ keyId, keySecret, webhookSecret, fetchImpl = globalThis.fetch } = {}) {
     this.keyId = keyId || process.env.RAZORPAY_KEY_ID || '';
     this.keySecret = keySecret || process.env.RAZORPAY_KEY_SECRET || '';
-    this.webhookSecret = webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET || 'rzp_whsec_dev_mock_secret';
+    this.webhookSecret = webhookSecret !== undefined
+      ? String(webhookSecret).trim()
+      : process.env.RAZORPAY_WEBHOOK_SECRET?.trim() || '';
     this.fetch = fetchImpl;
   }
 
@@ -126,15 +128,25 @@ export class PaymentGatewayService {
     return this.request(`/orders/${encodeURIComponent(orderId)}`, { method: 'GET' });
   }
 
-  async refundCapturedPayment({ paymentId, amount, currency = 'INR' }) {
+  async refundCapturedPayment({ paymentId, amount, currency = 'INR', reason = 'Customer refund', receipt = null }) {
     this.assertConfigured();
     if (!paymentId || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
       throw new BadRequestError('A valid captured payment and refund amount are required.');
     }
-    return this.request(`/payments/${encodeURIComponent(paymentId)}/refund`, {
+    const body = {
+      amount: Math.round(Number(amount) * 100),
+      speed: 'normal',
+      notes: { reason: String(reason).slice(0, 256) },
+      ...(receipt ? { receipt: String(receipt).slice(0, 40) } : {}),
+    };
+    const refund = await this.request(`/payments/${encodeURIComponent(paymentId)}/refund`, {
       method: 'POST',
-      body: JSON.stringify({ amount: Math.round(Number(amount) * 100), speed: 'normal', notes: { reason: 'Appointment slot became unavailable before confirmation' } }),
+      body: JSON.stringify(body),
     });
+    if (!refund?.id || !['pending', 'processed', 'failed'].includes(refund.status)) {
+      throw new BadGatewayError('Razorpay did not return a recognized refund result. Check the payment in the Razorpay Dashboard before retrying.');
+    }
+    return refund;
   }
 
   async request(path, options) {
@@ -150,12 +162,16 @@ export class PaymentGatewayService {
         signal: AbortSignal.timeout(15000),
       });
     } catch {
-      throw new BadGatewayError('Could not reach Razorpay to verify the payment.');
+      const error = new BadGatewayError('Razorpay did not confirm the request result. Check the Razorpay Dashboard before retrying.');
+      error.retrySafe = false;
+      throw error;
     }
 
     const result = await response.json().catch(() => null);
     if (!response.ok || !result) {
-      throw new BadGatewayError('Razorpay could not verify the payment. Check the API credentials and payment status.');
+      const error = new BadGatewayError(`Razorpay request failed with status ${response.status}. Reconcile the provider status before retrying.`);
+      error.retrySafe = response.status >= 400 && response.status < 500;
+      throw error;
     }
     return result;
   }
@@ -168,32 +184,28 @@ export class PaymentGatewayService {
       .digest('hex');
   }
 
-  verifyWebhookSignature({ payload, signature, customSecret = null }) {
-    if (!signature || !(customSecret || this.webhookSecret)) return false;
+  verifyWebhookSignature({ rawBody, signature, customSecret = null }) {
+    const body = Buffer.isBuffer(rawBody)
+      ? rawBody
+      : typeof rawBody === 'string'
+        ? Buffer.from(rawBody, 'utf8')
+        : null;
     const secret = customSecret || this.webhookSecret;
-    const dataString = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    const expected = crypto
-      .createHmac('sha256', secret)
-      .update(dataString)
-      .digest('hex');
-
-    try {
-      return crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'));
-    } catch {
-      return signature === expected;
-    }
+    if (!signature || !secret || !body || !/^[a-f0-9]{64}$/i.test(signature)) return false;
+    const expected = crypto.createHmac('sha256', secret).update(body).digest();
+    const supplied = Buffer.from(signature, 'hex');
+    return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
   }
 
-  async processRefund({ orderId, paymentIntentId, transactionId, amount, reason = 'Customer refund' }) {
-    const refundId = `rfnd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    return {
-      refundId,
-      orderId,
-      transactionId: transactionId || paymentIntentId || 'dummy_tx',
+  async processRefund({ orderId, transactionId, amount, reason = 'Customer refund', receipt }) {
+    if (!transactionId) {
+      throw new BadRequestError('A captured Razorpay payment ID is required to refund this order.');
+    }
+    return this.refundCapturedPayment({
+      paymentId: transactionId,
       amount,
-      status: 'processed',
-      reason,
-      processedAt: new Date().toISOString(),
-    };
+      reason: `${orderId}: ${reason}`,
+      receipt,
+    });
   }
 }

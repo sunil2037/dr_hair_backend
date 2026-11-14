@@ -2,6 +2,7 @@ import test, { describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { createContainer } from '../src/container.js';
+import { PaymentGatewayService } from '../src/modules/commerce/infrastructure/PaymentGatewayService.js';
 import { requestIdMiddleware } from '../src/shared/middlewares/requestId.middleware.js';
 import { TokenService } from '../src/shared/utils/token.service.js';
 import { store } from '../src/shared/database/store.js';
@@ -75,7 +76,10 @@ describe('Phase 7: Release Hardening & Staging Smoke Suite', () => {
       },
     };
 
-    container = createContainer({ smsService: mockSmsService });
+    container = createContainer({
+      smsService: mockSmsService,
+      paymentGatewayService: new PaymentGatewayService({ webhookSecret: 'local-test-webhook-secret' }),
+    });
     container.capturedOtpRef = () => capturedOtp;
   });
 
@@ -421,7 +425,7 @@ describe('Phase 7: Release Hardening & Staging Smoke Suite', () => {
 
     // Authentic payload & signature
     const isValid = container.services.paymentGatewayService.verifyWebhookSignature({
-      payload,
+      rawBody: Buffer.from(JSON.stringify(payload)),
       signature,
     });
     assert.equal(isValid, true);
@@ -429,7 +433,7 @@ describe('Phase 7: Release Hardening & Staging Smoke Suite', () => {
     // Tampered payload
     const tamperedPayload = { ...payload, event: 'refund.processed' };
     const isTamperedValid = container.services.paymentGatewayService.verifyWebhookSignature({
-      payload: tamperedPayload,
+      rawBody: Buffer.from(JSON.stringify(tamperedPayload)),
       signature,
     });
     assert.equal(isTamperedValid, false);

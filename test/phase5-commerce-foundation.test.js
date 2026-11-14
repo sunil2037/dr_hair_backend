@@ -16,6 +16,8 @@ test('Phase 5: Commerce Foundation & Order Lifecycle Tests', async (t) => {
       let body;
       if (url.endsWith('/orders')) {
         body = { id: 'order_test_unit_123', amount: payload.amount, currency: payload.currency, status: 'created' };
+      } else if (url.endsWith('/payments/pay_test_rzp_999/refund')) {
+        body = { id: 'rfnd_test_unit_123', amount: payload.amount, status: 'processed' };
       } else if (url.endsWith('/payments/pay_test_rzp_999')) {
         body = { id: 'pay_test_rzp_999', order_id: 'order_test_unit_123', amount: 204000, currency: 'INR', status: 'captured' };
       } else {

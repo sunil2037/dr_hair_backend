@@ -61,7 +61,15 @@ export const createApp = () => {
     }),
   );
   app.use(compression({ threshold: 1024 }));
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({
+    limit: '10mb',
+    verify(req, res, buffer) {
+      const pathname = String(req.originalUrl || '').split('?')[0];
+      if (pathname === '/api/v1/commerce/webhook/payment' || pathname === '/commerce/webhook/payment') {
+        req.rawBody = Buffer.from(buffer);
+      }
+    },
+  }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   if (config.env !== 'test') {

@@ -141,6 +141,8 @@ export class Order {
       paid_at: payment.paid_at || null,
       refund_id: payment.refund_id || null,
       refund_amount: Number(payment.refund_amount) || 0,
+      refund_status: payment.refund_status || '',
+      refund_pending_amount: Number(payment.refund_pending_amount) || 0,
       refunded_at: payment.refunded_at || null,
     };
 

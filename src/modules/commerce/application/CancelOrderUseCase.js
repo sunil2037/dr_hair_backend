@@ -19,11 +19,13 @@ export class CancelOrderUseCase {
       throw new ForbiddenError('You can only cancel your own orders');
     }
 
+    const currentStatus = order.fulfillment.status;
+    if (order.fulfillment.shiprocket_shipment_id || order.fulfillment.awb_code) {
+      throw new BadRequestError('A Shiprocket shipment already exists. Confirm carrier cancellation with the courier before cancelling this order.');
+    }
     if (order.payment.payment_status === 'Paid') {
       throw new BadRequestError('Paid orders must be refunded instead of cancelled');
     }
-
-    const currentStatus = order.fulfillment.status;
     if (['Shipped', 'Delivered', 'Cancelled', 'Refunded'].includes(currentStatus)) {
       throw new BadRequestError(`Cannot cancel order in '${currentStatus}' status`);
     }

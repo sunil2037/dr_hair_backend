@@ -65,10 +65,8 @@ export class CreateShiprocketShipmentUseCase {
 
     const updated = await this.orderRepository.update(cleanOrderId, {
       fulfillment: {
-        status: 'Shipped',
         courier: shipment.courierName || 'Shiprocket',
         tracking_number: shipment.awbCode,
-        shipped_at: new Date().toISOString(),
         shiprocket_status: 'created',
         shiprocket_order_id: shipment.shiprocketOrderId,
         shiprocket_shipment_id: shipment.shipmentId,
@@ -77,7 +75,7 @@ export class CreateShiprocketShipmentUseCase {
       },
     });
     updated.addTimelineEvent(
-      `Shiprocket shipment created${shipment.courierName ? ` with ${shipment.courierName}` : ''} (AWB: ${shipment.awbCode}); pickup requested`,
+      `Shiprocket shipment created${shipment.courierName ? ` with ${shipment.courierName}` : ''} (AWB: ${shipment.awbCode}); pickup requested and awaiting courier handoff`,
     );
     await this.orderRepository.update(cleanOrderId, { timeline: updated.timeline });
 

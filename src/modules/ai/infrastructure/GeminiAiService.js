@@ -1,4 +1,5 @@
 import { config } from '../../../config/env.js';
+import { ServiceUnavailableError } from '../../../shared/errors/index.js';
 
 const unavailableImageVerification = (label, details = 'The image verification service did not return a result.') => ({
   is_hair: false,
@@ -51,6 +52,105 @@ export class GeminiAiService {
 
   getConservativeNextStepRecommendation(patientData = {}) {
     return conservativeNextStepRecommendation(patientData);
+  }
+
+  async streamAssistantReply({ messages, onToken, signal } = {}) {
+    if (!this.apiKey) {
+      throw new ServiceUnavailableError('AI chat is not configured yet. Please try again later.');
+    }
+    if (typeof onToken !== 'function') {
+      throw new TypeError('A token callback is required for streamed AI replies.');
+    }
+
+    const model = this.model;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(55000)])
+      : AbortSignal.timeout(55000);
+    let response;
+    try {
+      response = await this.fetchFn(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': this.apiKey,
+          'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{
+              text: [
+                'You are Dr. Hair Assistant, a friendly general hair and scalp wellness guide.',
+                'Give clear, concise, practical information, and reply in the language the user used most recently.',
+                'Use the user conversation only; do not claim access to medical records.',
+                'You are not a doctor. Do not diagnose conditions, prescribe medicines, recommend medication doses, or tell users to stop prescribed treatment.',
+                'For sudden or patchy hair loss, severe pain, bleeding, sores, pus, rapidly worsening symptoms, pregnancy, or complex medical history, advise contacting a qualified clinician promptly.',
+                'For a medical emergency, tell the user to seek local emergency care. Do not promise outcomes or present product sales as medical treatment.',
+                'If asked something outside hair, scalp, or general wellness, politely say you can help with hair and scalp questions.',
+              ].join(' '),
+            }],
+          },
+          contents: messages.map((message) => ({
+            role: message.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: message.content }],
+          })),
+          generationConfig: {
+            temperature: 0.45,
+            maxOutputTokens: 700,
+          },
+        }),
+        signal: requestSignal,
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      this.logger.warn?.('Gemini assistant stream could not be reached.');
+      throw new ServiceUnavailableError('The assistant is temporarily unavailable. Please try again.');
+    }
+
+    if (!response.ok || !response.body) {
+      this.logger.warn?.(`Gemini assistant stream returned status ${response.status}.`);
+      throw new ServiceUnavailableError('The assistant is temporarily unavailable. Please try again.');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let outputLength = 0;
+    const consumeLine = async (line) => {
+      if (!line.startsWith('data:')) return;
+      const data = line.slice(5).trim();
+      if (!data || data === '[DONE]') return;
+      let event;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        return;
+      }
+      const token = event?.candidates?.[0]?.content?.parts
+        ?.map((part) => typeof part?.text === 'string' ? part.text : '')
+        .join('') || '';
+      if (!token) return;
+      const safeToken = token.slice(0, Math.max(0, 12000 - outputLength));
+      if (!safeToken) return;
+      outputLength += safeToken.length;
+      await onToken(safeToken);
+    };
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        for (const line of lines) await consumeLine(line);
+        if (done) break;
+        if (outputLength >= 12000) break;
+      }
+      if (buffer) await consumeLine(buffer);
+    } finally {
+      if (signal?.aborted) await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
 
   /**
