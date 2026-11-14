@@ -30,9 +30,15 @@ export class AppointmentRepository {
       try {
         return plain(await AppointmentModel.create(record));
       } catch (error) {
+        if (error?.code === 11000 && error?.keyPattern?.payment_transaction_id) {
+          throw new ConflictError('This Razorpay payment has already been used for an appointment.');
+        }
         if (error?.code === 11000) throw new ConflictError('This clinic slot has just been booked. Choose another time.');
         throw error;
       }
+    }
+    if (record.payment_transaction_id && store.appointments.some((item) => item.payment_transaction_id === record.payment_transaction_id)) {
+      throw new ConflictError('This Razorpay payment has already been used for an appointment.');
     }
     if (record.slot_key && store.appointments.some((item) => item.slot_key === record.slot_key && item.status !== 'Cancelled')) {
       throw new ConflictError('This clinic slot is already booked. Choose another time.');
@@ -54,6 +60,15 @@ export class AppointmentRepository {
       return plain(await AppointmentModel.findOne({ slot_key: startsAt, status: { $ne: 'Cancelled' }, ...(exceptId ? { id: { $ne: String(exceptId) } } : {}) }).lean());
     }
     return store.appointments.find((item) => item.slot_key === startsAt && item.id !== String(exceptId) && item.status !== 'Cancelled') || null;
+  }
+
+  async findByPaymentTransactionId(transactionId) {
+    const normalized = String(transactionId || '').trim();
+    if (!normalized) return null;
+    if (isMongoConnected()) {
+      return plain(await AppointmentModel.findOne({ payment_transaction_id: normalized }).lean());
+    }
+    return store.appointments.find((item) => item.payment_transaction_id === normalized) || null;
   }
 
   async listByPatient(userId) {
@@ -125,6 +140,21 @@ export class AppointmentRepository {
       }).sort({ starts_at: 1 }).select('id patient_code userId starts_at status').lean();
     }
     return store.appointments.filter((item) => item.starts_at >= startsAt && item.starts_at < endsAt && item.status !== 'Cancelled');
+  }
+
+  async listActiveSlotTimesInRange(from, to) {
+    const startsAt = new Date(`${from}T00:00:00+05:30`).toISOString();
+    const endsAt = new Date(new Date(`${to}T00:00:00+05:30`).getTime() + 24 * 60 * 60 * 1000).toISOString();
+    if (isMongoConnected()) {
+      return AppointmentModel.find({
+        starts_at: { $gte: startsAt, $lt: endsAt },
+        status: { $ne: 'Cancelled' },
+      }).sort({ starts_at: 1 }).select('starts_at').lean();
+    }
+    return store.appointments
+      .filter((item) => item.starts_at >= startsAt && item.starts_at < endsAt && item.status !== 'Cancelled')
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+      .map(({ starts_at }) => ({ starts_at }));
   }
 
   async listClosedDates() {

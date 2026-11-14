@@ -13,6 +13,7 @@ export class CommerceController {
     refundOrderUseCase,
     updateFulfillmentUseCase,
     createShiprocketShipmentUseCase,
+    shiprocketService,
     paymentGatewayService,
   }) {
     this.addressRepository = addressRepository;
@@ -25,6 +26,7 @@ export class CommerceController {
     this.refundOrderUseCase = refundOrderUseCase;
     this.updateFulfillmentUseCase = updateFulfillmentUseCase;
     this.createShiprocketShipmentUseCase = createShiprocketShipmentUseCase;
+    this.shiprocketService = shiprocketService;
     this.paymentGatewayService = paymentGatewayService;
   }
 
@@ -226,6 +228,31 @@ export class CommerceController {
     }
   }
 
+  async trackPatientOrder(req, res, next) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) throw new UnauthorizedError('Authentication required');
+
+      const order = await this.orderRepository.findById(req.params.orderId);
+      if (!order || String(order.user_id) !== String(userId).trim()) {
+        throw new NotFoundError('Order not found');
+      }
+
+      const fulfillment = order.fulfillment || {};
+      if (!fulfillment.shiprocket_shipment_id && !fulfillment.awb_code) {
+        throw new BadRequestError('Live tracking will appear after a Shiprocket AWB is assigned.');
+      }
+
+      const tracking = await this.shiprocketService.trackShipment({
+        awbCode: fulfillment.awb_code || fulfillment.tracking_number,
+        shipmentId: fulfillment.shiprocket_shipment_id,
+      });
+      return sendSuccess(res, tracking, 'Shipment tracking retrieved');
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async cancelPatientOrder(req, res, next) {
     try {
       const userId = req.user?.id;
@@ -279,6 +306,26 @@ export class CommerceController {
       const order = await this.orderRepository.findById(orderId);
       if (!order) throw new NotFoundError('Order not found');
       return sendSuccess(res, order.toJSON(), 'Order details retrieved');
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async trackAdminOrder(req, res, next) {
+    try {
+      const order = await this.orderRepository.findById(req.params.orderId);
+      if (!order) throw new NotFoundError('Order not found');
+
+      const fulfillment = order.fulfillment || {};
+      if (!fulfillment.shiprocket_shipment_id && !fulfillment.awb_code) {
+        throw new BadRequestError('Live tracking will appear after a Shiprocket AWB is assigned.');
+      }
+
+      const tracking = await this.shiprocketService.trackShipment({
+        awbCode: fulfillment.awb_code || fulfillment.tracking_number,
+        shipmentId: fulfillment.shiprocket_shipment_id,
+      });
+      return sendSuccess(res, tracking, 'Shipment tracking retrieved');
     } catch (err) {
       next(err);
     }

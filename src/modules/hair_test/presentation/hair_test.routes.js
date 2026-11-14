@@ -27,6 +27,9 @@ export const createHairTestRouter = ({ hairTestController }) => {
 
   // POST /HairTest/:referenceNo/ai_assessment
   router.post('/:referenceNo/ai_assessment', authenticateToken, requireRegisteredUser, hairTestController.generateAiAssessment);
+  router.get('/:referenceNo/ai_assessment/status', authenticateToken, requireRegisteredUser, hairTestController.getAiAssessmentStatus);
+  router.post('/:referenceNo/ai_assessment/retry', authenticateToken, requireRegisteredUser, hairTestController.retryAiAssessment);
+  router.post('/:referenceNo/diet_plan', authenticateToken, requireRegisteredUser, hairTestController.generateDietPlan);
 
   // AI Visual Scalp & Hair Image Detection
   // POST /HairTest/detect_scalp_image

@@ -15,15 +15,30 @@ const publicReport = (report) => ({
 });
 
 export class PatientClinicalController {
-  constructor({ hairTestRepository, treatmentRepository, clinicalReportRepository, appointmentRepository, progressCheckInRepository, patientActivityRepository, imageStorage, submitHairTestUseCase }) {
+  constructor({
+    hairTestRepository,
+    treatmentRepository,
+    clinicalReportRepository,
+    appointmentRepository,
+    progressCheckInRepository,
+    patientCareEventRepository,
+    patientActivityRepository,
+    imageStorage,
+    submitHairTestUseCase,
+    featureFlagRepository,
+    assessmentProductAvailabilityService,
+  }) {
     this.hairTestRepository = hairTestRepository;
     this.treatmentRepository = treatmentRepository;
     this.clinicalReportRepository = clinicalReportRepository;
     this.appointmentRepository = appointmentRepository;
     this.progressCheckInRepository = progressCheckInRepository;
+    this.patientCareEventRepository = patientCareEventRepository;
     this.patientActivityRepository = patientActivityRepository;
     this.imageStorage = imageStorage;
     this.submitHairTestUseCase = submitHairTestUseCase;
+    this.featureFlagRepository = featureFlagRepository;
+    this.assessmentProductAvailabilityService = assessmentProductAvailabilityService;
   }
 
   getClinicalRecord = async (req, res, next) => {
@@ -39,6 +54,7 @@ export class PatientClinicalController {
             : [],
         this.appointmentRepository?.listByPatient ? this.appointmentRepository.listByPatient(userId) : [],
       ]);
+      const sharedReports = (reports || []).filter((r) => (r.visibility === 'Shared' || !r.visibility) && !r.deleted_at);
       return sendSuccess(res, {
         data: {
           assessments: await Promise.all(
@@ -57,9 +73,310 @@ export class PatientClinicalController {
                 }))),
               }))
           ),
-          care_plans: carePlans.map((plan) => ({ ...plan.toResponse(), reference_no: plan.reference_no })),
-          reports: reports.map(publicReport),
+          care_plans: carePlans.map((plan) => ({ ...(typeof plan.toResponse === 'function' ? plan.toResponse() : plan), reference_no: plan.reference_no })),
+          reports: sharedReports.map(publicReport),
           appointments,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listCareEvents = async (req, res, next) => {
+    try {
+      const from = String(req.query?.from || '');
+      const to = String(req.query?.to || '');
+      const isDateKey = (value) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+        const parsed = new Date(`${value}T00:00:00Z`);
+        return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+      };
+      if (!isDateKey(from) || !isDateKey(to) || from > to) {
+        throw new BadRequestError('from and to must be valid YYYY-MM-DD dates with from on or before to.');
+      }
+      const dayCount = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000 + 1;
+      if (dayCount > 93) throw new BadRequestError('Care event history range cannot exceed 93 days.');
+      const items = await this.patientCareEventRepository?.listByUserId?.(req.user.id, { from, to }) || [];
+      return sendSuccess(res, { data: { items } });
+    } catch (error) { next(error); }
+  };
+
+  saveCareEvent = async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const event_type = String(body.event_type || '');
+      const event_key = String(body.event_key || '').trim();
+      const event_date = String(body.event_date || '');
+      const status = String(body.status || '');
+      const value = body.value == null ? null : Number(body.value);
+      const isDateKey = /^\d{4}-\d{2}-\d{2}$/.test(event_date) && new Date(`${event_date}T00:00:00Z`).toISOString().slice(0, 10) === event_date;
+      if (!isDateKey) throw new BadRequestError('event_date must use a valid YYYY-MM-DD date.');
+      if (!['routine', 'diet', 'water', 'symptom'].includes(event_type)) throw new BadRequestError('event_type is invalid.');
+      if (!/^[a-zA-Z0-9_:.\-]{1,160}$/.test(event_key)) throw new BadRequestError('event_key must be a stable identifier.');
+      if ((event_type === 'routine' || event_type === 'diet') && !['pending', 'completed', 'skipped'].includes(status)) {
+        throw new BadRequestError('Routine and diet events must be pending, completed, or skipped.');
+      }
+      if ((event_type === 'water' || event_type === 'symptom') && status !== 'logged') {
+        throw new BadRequestError('Water and symptom events must use logged status.');
+      }
+      if (event_type === 'water' && (!Number.isInteger(value) || value < 0 || value > 20)) {
+        throw new BadRequestError('Water value must be a whole number from 0 to 20.');
+      }
+      const severity = String(body.severity || '');
+      if (event_type === 'symptom' && !['mild', 'moderate', 'severe'].includes(severity)) {
+        throw new BadRequestError('Symptom severity must be mild, moderate, or severe.');
+      }
+      const validSymptoms = new Set(['itching', 'pain', 'burning', 'redness', 'sores', 'increased_shedding', 'other']);
+      const symptoms = Array.isArray(body.symptoms)
+        ? [...new Set(body.symptoms.map((item) => String(item).toLowerCase()))]
+        : [];
+      if (event_type === 'symptom' && (symptoms.length === 0 || symptoms.length > 7 || symptoms.some((item) => !validSymptoms.has(item)))) {
+        throw new BadRequestError('Choose one to seven supported symptom labels.');
+      }
+      const note = String(body.note || '').trim();
+      if (['routine', 'diet'].includes(event_type) && status === 'skipped' && note.length > 240) throw new BadRequestError('Skip reason must be 240 characters or fewer.');
+      if (event_type === 'symptom' && note.length > 1000) throw new BadRequestError('Symptom note must be 1000 characters or fewer.');
+
+      const event = await this.patientCareEventRepository.upsert({
+        userId: Number(req.user.id), event_date, event_type, event_key, status,
+        value: event_type === 'water' ? value : null,
+        severity: event_type === 'symptom' ? severity : '',
+        symptoms: event_type === 'symptom' ? symptoms : [],
+        note: ['routine', 'diet', 'symptom'].includes(event_type) ? note : '',
+      });
+      const clinicianContactRecommended = event_type === 'symptom' && (
+        severity === 'severe' || symptoms.some((item) => ['pain', 'burning', 'sores'].includes(item))
+      );
+      return sendSuccess(res, {
+        message: 'Daily care check-in saved.',
+        data: {
+          item: event,
+          clinician_contact_recommended: clinicianContactRecommended,
+          next_step: clinicianContactRecommended ? 'contact_clinic' : 'continue_plan',
+        },
+      });
+    } catch (error) { next(error); }
+  };
+
+  getHomeSummary = async (req, res, next) => {
+    try {
+      const userId = req.user.id;
+      const [assessments, draft, carePlans, reports, appointments] = await Promise.all([
+        this.hairTestRepository?.findByUserId ? this.hairTestRepository.findByUserId(userId) : [],
+        this.hairTestRepository?.getDraft ? this.hairTestRepository.getDraft(userId) : null,
+        this.treatmentRepository?.findByUserId ? this.treatmentRepository.findByUserId(userId) : [],
+        this.clinicalReportRepository?.listSharedByUserId
+          ? this.clinicalReportRepository.listSharedByUserId(userId)
+          : this.clinicalReportRepository?.listByUserId
+            ? this.clinicalReportRepository.listByUserId(userId)
+            : [],
+        this.appointmentRepository?.listByPatient ? this.appointmentRepository.listByPatient(userId) : [],
+      ]);
+
+      let shopEnabled = true;
+      let clinicAppointmentEnabled = true;
+      if (this.featureFlagRepository) {
+        try {
+          const shopFlag = await this.featureFlagRepository.evaluate('shop', { platform: 'patient' });
+          shopEnabled = shopFlag?.enabled !== false;
+        } catch {}
+        try {
+          const aptFlag = await this.featureFlagRepository.evaluate('clinic_appointment', { platform: 'patient' });
+          if (aptFlag && aptFlag.enabled === false) {
+            clinicAppointmentEnabled = false;
+          }
+        } catch {}
+      }
+
+      const submittedAssessments = (assessments || [])
+        .filter((a) => a.status !== 'draft')
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      const latestAssessment = submittedAssessments[0] || null;
+
+      const sharedReports = (reports || [])
+        .filter((r) => (r.visibility === 'Shared' || !r.visibility) && !r.deleted_at)
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+      const activeCarePlans = (carePlans || [])
+        .sort((a, b) => new Date(b.created_at || b.date || 0).getTime() - new Date(a.created_at || a.date || 0).getTime());
+      const latestCarePlan = activeCarePlans[0] || null;
+
+      const actionCards = [];
+
+      // Check clinical urgency / next step from assessment
+      const aiAssessment = latestAssessment?.ai_assessment || null;
+      const nextStep = aiAssessment?.next_step_recommendation;
+      const nextStepType = nextStep?.type || (
+        /stage\s*[- ]?\s*[45]|patchy/i.test(latestAssessment?.hair_loss_stage || '') ? 'doctor_appointment' : ''
+      );
+      const isClinicianRequired =
+        aiAssessment?.ai_status === 'clinician_review_required' ||
+        aiAssessment?.requiresClinician === true ||
+        nextStepType === 'doctor_appointment' ||
+        /stage\s*[- ]?\s*[45]|patchy/i.test(latestAssessment?.hair_loss_stage || '');
+
+      // PRIORITY 1: Clinician-required / urgent next step
+      if (isClinicianRequired) {
+        actionCards.push({
+          id: 'card_clinician_urgent',
+          type: 'clinician_urgent',
+          priority: 1,
+          title: 'Clinician Consultation Recommended',
+          body: nextStep?.reason || 'Based on your clinical assessment answers and hair loss pattern, a consultation with a clinical doctor is advised before starting care.',
+          action_label: clinicAppointmentEnabled ? 'Book Clinic Visit' : 'Contact Clinic',
+          destination: {
+            type: 'route',
+            route: clinicAppointmentEnabled ? '/clinic-appointment' : '/contact',
+            fallback: 'whatsapp',
+          },
+          why_shown: 'Authoritative recommendation based on your hair assessment',
+          created_at: latestAssessment?.created_at || new Date().toISOString(),
+        });
+      }
+
+      // PRIORITY 2: Pending user actions
+      // A. Incomplete assessment draft
+      const draftFormData = draft?.formData || draft || {};
+      const hasDraftData = Object.keys(draftFormData).length > 0 && !latestAssessment;
+      if (hasDraftData) {
+        actionCards.push({
+          id: 'card_pending_assessment',
+          type: 'pending_assessment',
+          priority: 2,
+          title: 'Complete Your Hair Assessment',
+          body: 'You have an assessment in progress. Finish answering the questions to receive your clinical evaluation.',
+          action_label: 'Continue Assessment',
+          destination: {
+            type: 'route',
+            route: '/hair-test',
+          },
+          why_shown: 'Unfinished assessment draft found in your account',
+          created_at: draft?.updated_at || new Date().toISOString(),
+        });
+      }
+
+      // B. Appointment awaiting user action
+      const pendingAppointments = (appointments || []).filter((apt) =>
+        ['pending', 'payment_pending', 'awaiting_confirmation', 'action_required'].includes(String(apt.status || '').toLowerCase())
+      );
+      if (pendingAppointments.length > 0) {
+        const apt = pendingAppointments[0];
+        actionCards.push({
+          id: `card_pending_appointment_${apt.id}`,
+          type: 'pending_appointment',
+          priority: 2,
+          title: 'Appointment Awaiting Confirmation',
+          body: `Your clinic appointment for ${apt.reason || 'Consultation'} is pending confirmation.`,
+          action_label: 'View Appointment',
+          destination: {
+            type: 'route',
+            route: '/appointments',
+            entity_id: String(apt.id),
+          },
+          entity_id: String(apt.id),
+          why_shown: 'Scheduled appointment requires your attention',
+          created_at: apt.created_at || new Date().toISOString(),
+        });
+      }
+
+      // PRIORITY 3: Newly shared admin report
+      if (sharedReports.length > 0) {
+        const latestReport = sharedReports[0];
+        actionCards.push({
+          id: `card_shared_report_${latestReport.id}`,
+          type: 'shared_report',
+          priority: 3,
+          title: 'New Report from Clinic',
+          body: `${latestReport.title} is available in your clinical record. Tap to view your verified results.`,
+          action_label: 'Open Report',
+          destination: {
+            type: 'report',
+            route: '/treatment-details',
+            entity_id: String(latestReport.id),
+          },
+          entity_id: String(latestReport.id),
+          why_shown: 'Uploaded and shared by your clinical team',
+          created_at: latestReport.created_at || new Date().toISOString(),
+        });
+      }
+
+      // PRIORITY 4: Actual doctor-authored care plan
+      if (latestCarePlan) {
+        actionCards.push({
+          id: `card_care_plan_${latestCarePlan.id}`,
+          type: 'care_plan',
+          priority: 4,
+          title: 'Your Care Plan',
+          body: latestCarePlan.treatment_name || 'Your personalized treatment plan from your clinician.',
+          action_label: 'View Plan',
+          destination: {
+            type: 'route',
+            route: '/treatment-details',
+            entity_id: String(latestCarePlan.id),
+          },
+          entity_id: String(latestCarePlan.id),
+          why_shown: latestCarePlan.doctor_name ? `Prescribed by ${latestCarePlan.doctor_name}` : 'Prescribed by your clinician',
+          created_at: latestCarePlan.created_at || latestCarePlan.date || new Date().toISOString(),
+        });
+      }
+
+      // PRIORITY 5: Assessment-specific product suggestions
+      // Only when shop is enabled, NOT clinician priority, and available products present
+      let availableProducts = Array.isArray(aiAssessment?.available_products) ? aiAssessment.available_products : [];
+      if (shopEnabled && !isClinicianRequired && availableProducts.length > 0) {
+        actionCards.push({
+          id: 'card_product_suggestions',
+          type: 'product_suggestions',
+          priority: 5,
+          title: 'Recommended Care Products',
+          body: 'Targeted products selected to support your specific hair profile.',
+          action_label: 'View Products',
+          destination: {
+            type: 'route',
+            route: '/products',
+          },
+          products: availableProducts,
+          why_shown: 'Matched to your hair assessment answers',
+          created_at: latestAssessment?.created_at || new Date().toISOString(),
+        });
+      }
+
+      // PRIORITY 6: Appointment suggestion
+      // Only when recommendation calls for it, clinic appointments are enabled, and not already clinician_urgent
+      if (clinicAppointmentEnabled && !isClinicianRequired && nextStepType === 'doctor_appointment') {
+        actionCards.push({
+          id: 'card_appointment_suggestion',
+          type: 'appointment_suggestion',
+          priority: 6,
+          title: 'Book a Clinic Consultation',
+          body: nextStep?.reason || 'Consult in-clinic with our medical specialists for an in-depth scalp examination.',
+          action_label: 'Book Appointment',
+          destination: {
+            type: 'route',
+            route: '/clinic-appointment',
+          },
+          why_shown: 'Recommended based on your hair test assessment',
+          created_at: latestAssessment?.created_at || new Date().toISOString(),
+        });
+      }
+
+      actionCards.sort((a, b) => a.priority - b.priority);
+
+      return sendSuccess(res, {
+        data: {
+          action_cards: actionCards,
+          patient_status: {
+            has_completed_assessment: Boolean(latestAssessment),
+            assessment_status: latestAssessment?.status || (hasDraftData ? 'draft' : 'none'),
+            has_active_care_plan: Boolean(latestCarePlan),
+            shared_reports_count: sharedReports.length,
+            upcoming_appointments_count: (appointments || []).filter((a) => !['cancelled', 'completed'].includes(String(a.status).toLowerCase())).length,
+          },
+          feature_flags: {
+            shop_enabled: shopEnabled,
+            clinic_appointment_enabled: clinicAppointmentEnabled,
+          },
         },
       });
     } catch (error) {

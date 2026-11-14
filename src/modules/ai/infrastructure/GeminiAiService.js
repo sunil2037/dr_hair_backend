@@ -19,8 +19,12 @@ const conservativeNextStepRecommendation = (patientData = {}) => {
     .toLowerCase();
   const advancedStage = /stage\s*[- ]?\s*[45]/i.test(String(patientData.hair_loss_stage || ''));
   const increasing = /yes|increasing|rapid|sudden/i.test(String(patientData.hair_fall_increasing || ''));
+  const medicalHistory = (Array.isArray(patientData.medical_conditions)
+    ? patientData.medical_conditions
+    : [patientData.medical_conditions]).join(' ').toLowerCase();
   const redFlag = advancedStage || increasing || /patchy|sudden|rapid|rapidly/i.test(pattern) ||
-    /pain|burn|sore|bleed|wound/i.test(symptoms);
+    /pain|burn|sore|bleed|wound|pus|infection|swelling/i.test(symptoms) ||
+    /thyroid|pcos|autoimmune|anemia|anaemia|pregnan|diabetes|kidney|renal|liver disease|cancer|chemotherapy/i.test(medicalHistory);
 
   return redFlag
     ? {
@@ -43,6 +47,10 @@ export class GeminiAiService {
     this.logger = logger || console;
     this.fetchFn = fetchFn;
     this.imageStorage = imageStorage;
+  }
+
+  getConservativeNextStepRecommendation(patientData = {}) {
+    return conservativeNextStepRecommendation(patientData);
   }
 
   /**
@@ -178,27 +186,41 @@ export class GeminiAiService {
         Array.isArray(parsedData.recommended_regimen.daily_steps);
       if (!hasRequiredAssessment) return this.generateFallbackAssessment(patientData);
 
+      const nextStepRecommendation = (() => {
+        const safetyRecommendation = conservativeNextStepRecommendation(patientData);
+        const modelRecommendation = parsedData.next_step_recommendation;
+        if (safetyRecommendation.type === 'doctor_appointment') return safetyRecommendation;
+        if (modelRecommendation?.type === 'doctor_appointment') {
+          return {
+            type: 'doctor_appointment',
+            reason: 'Your answers need a clinician review before the Assistant can suggest a care plan.',
+          };
+        }
+        return safetyRecommendation;
+      })();
+      const isClinicianPriority = nextStepRecommendation.type === 'doctor_appointment';
+      const recommendedRegimen = isClinicianPriority
+        ? { summary: '', daily_steps: [], target_products: [] }
+        : {
+            ...parsedData.recommended_regimen,
+            daily_steps: parsedData.recommended_regimen.daily_steps.filter((step) => {
+              const instruction = String(step?.action || step?.instruction || step?.step || '');
+              return !/\b(tablet|supplement|medicine|medication|prescription|dosage|mg|ml|minoxidil|capsule)\b/i.test(instruction);
+            }),
+          };
+
       return {
-        ai_status: 'available',
-        scalp_health_score: Number(parsedData.scalp_health_score) || 70,
-        stage_classification: String(parsedData.stage_classification || 'Stage 2 - Early Thinning'),
-        summary: String(parsedData.summary || 'Clinical AI evaluation completed based on reported symptoms.'),
-        root_causes: Array.isArray(parsedData.root_causes) ? parsedData.root_causes : [],
-        diet_plan: parsedData.diet_plan || {},
-        lifestyle_guidance: parsedData.lifestyle_guidance || {},
-        recommended_regimen: parsedData.recommended_regimen || {},
-        next_step_recommendation: (() => {
-          const safetyRecommendation = conservativeNextStepRecommendation(patientData);
-          const modelRecommendation = parsedData.next_step_recommendation;
-          if (safetyRecommendation.type === 'doctor_appointment') return safetyRecommendation;
-          if (modelRecommendation?.type === 'doctor_appointment') {
-            return {
-              type: 'doctor_appointment',
-              reason: String(modelRecommendation.reason || 'A clinician can review your assessment and answer questions.'),
-            };
-          }
-          return safetyRecommendation;
-        })(),
+        ai_status: isClinicianPriority ? 'clinician_review_required' : 'available',
+        scalp_health_score: isClinicianPriority ? null : (Number(parsedData.scalp_health_score) || 70),
+        stage_classification: isClinicianPriority ? '' : String(parsedData.stage_classification || 'Stage 2 - Early Thinning'),
+        summary: isClinicianPriority
+          ? 'Please contact the clinic for guidance. The Assistant will not suggest a care plan for this assessment.'
+          : String(parsedData.summary || 'Clinical AI evaluation completed based on reported symptoms.'),
+        root_causes: isClinicianPriority ? [] : (Array.isArray(parsedData.root_causes) ? parsedData.root_causes : []),
+        diet_plan: isClinicianPriority ? {} : (parsedData.diet_plan || {}),
+        lifestyle_guidance: isClinicianPriority ? {} : (parsedData.lifestyle_guidance || {}),
+        recommended_regimen: recommendedRegimen,
+        next_step_recommendation: nextStepRecommendation,
         generated_by: `Dr. Hair Assistant (${activeModel})`,
         generated_at: new Date().toISOString(),
       };
@@ -206,6 +228,62 @@ export class GeminiAiService {
       this.logger.error?.(`Error invoking Gemini API: ${err.message}. Using fallback assessment.`);
       return this.generateFallbackAssessment(patientData);
     }
+  }
+
+  async generatePersonalizedDietPlan(patientData = {}) {
+    if (!this.apiKey) throw new Error('AI meal planning service is unavailable.');
+    const prompt = `You are Dr. Hair Assistant. You only answer hair, scalp, recovery, and related nutrition questions. Create a practical, culturally flexible 7-day food plan that may support general hair health. This is nutrition guidance, not treatment or diagnosis. Do not prescribe supplements, medicines, doses, or restrictive diets. Respect the patient's stated diet, allergies, medical conditions, current medicines, and relevant clinician care plans. Do not promise hair regrowth or invent patient details. If the available clinical context indicates a risk requiring clinician review, do not generate a meal plan and direct the patient to their clinician. Return only JSON with this shape: {"summary":"...","days":[{"day":"Day 1","meals":[{"type":"Breakfast","name":"...","ingredients":["..."],"benefit":"..."}]}],"safety_note":"..."}. Include 3 meals per day for 7 days. Keep meals realistic and use alternatives where allergy or dietary details require it.\nPatient health context: ${JSON.stringify({ age: patientData.age, gender: patientData.gender, diet_type: patientData.diet_type, protein_intake: patientData.protein_intake, allergy_status: patientData.allergy_status, allergy_details: patientData.allergy_details, medical_conditions: patientData.medical_conditions, current_medications: patientData.current_medications, gut_health: patientData.gut_health, foods_to_eat: patientData.ai_assessment?.diet_plan?.foods_to_eat, clinical_context: patientData.clinical_context })}`;
+    const response = await this.fetchFn(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 2200, responseMimeType: 'application/json' },
+        }),
+        signal: AbortSignal.timeout(20000),
+      },
+    );
+    if (!response.ok) throw new Error(`AI meal plan request failed (${response.status}).`);
+    const data = await response.json();
+    const parsed = this._parseJsonCandidate(data?.candidates?.[0]?.content?.parts?.[0]?.text);
+    if (!parsed || typeof parsed.summary !== 'string' || !Array.isArray(parsed.days) || parsed.days.length !== 7) {
+      throw new Error('AI meal plan response was incomplete.');
+    }
+    const days = parsed.days.slice(0, 7).map((day, index) => ({
+      day: String(day.day || `Day ${index + 1}`).slice(0, 30),
+      meals: (Array.isArray(day.meals) ? day.meals : []).slice(0, 3).map((meal) => ({
+        type: String(meal.type || '').slice(0, 40),
+        name: String(meal.name || '').slice(0, 160),
+        ingredients: (Array.isArray(meal.ingredients) ? meal.ingredients : []).slice(0, 8).map((item) => String(item).slice(0, 120)),
+        benefit: String(meal.benefit || '').slice(0, 300),
+      })),
+    }));
+    if (days.some((day) => day.meals.length !== 3 || day.meals.some((meal) => !meal.name))) {
+      throw new Error('AI meal plan response was incomplete.');
+    }
+    const declaredAllergies = String(patientData.allergy_details || '').toLowerCase();
+    const foodAllergenGroups = [
+      ['peanut', 'groundnut'],
+      ['tree nut', 'nuts', 'almond', 'cashew', 'walnut', 'pistachio'],
+      ['milk', 'dairy', 'lactose'],
+      ['egg'], ['fish'], ['shellfish', 'prawn', 'shrimp'],
+      ['soy', 'soya'], ['wheat', 'gluten'], ['sesame'], ['mustard'],
+    ];
+    const mealText = JSON.stringify(days);
+    const conflictingAllergen = foodAllergenGroups.find((group) => {
+      const declared = group.some((allergen) => declaredAllergies.includes(allergen));
+      return declared && group.some((alias) => new RegExp(`\\b${alias.replace(' ', '\\s+')}s?\\b`, 'i').test(mealText));
+    });
+    if (conflictingAllergen) throw new Error('AI meal plan included a declared food allergen.');
+    return {
+      summary: parsed.summary.slice(0, 500),
+      days,
+      safety_note: String(parsed.safety_note || 'This meal plan is general nutrition guidance and does not replace advice from your clinician.').slice(0, 500),
+      generated_by: 'Dr. Hair Assistant',
+      generated_at: new Date().toISOString(),
+    };
   }
 
   /**
@@ -322,7 +400,7 @@ NEXT-STEP DECISION:
 - Use type "doctor_appointment" when the answers report patchy hair loss, sudden or rapidly increasing shedding, scalp pain/burning/sores/bleeding, advanced reported thinning, or symptoms whose cause needs clinical assessment. State the reason in calm, non-alarmist language.
 - Otherwise use the existing type "products" to mean a self-care pathway with practical daily steps; products are optional supporting choices, never the primary treatment or the only next step.
 - Make the next step fit the patient's reported condition and realistic care options. When clinician assessment is needed, prioritize the appointment/review path. Do not imply that AI guidance or catalog items provide a complete treatment.
-- Suggest only broad categories from Hair Care, Serums, or Supplements; the app will match them to available catalog items. Never invent a branded product. Do not suggest supplements unless the patient has clinician-confirmed need.
+- Suggest only broad categories from Hair Care or Serums; never suggest supplements, medicines, prescriptions, or branded products. The app matches broad categories to the active in-stock catalog.
 - Never infer a diagnosis from a photo or questionnaire, and never recommend prescription treatment or supplement dosing.
 - Do not call the score a clinical measurement or present the reported pattern as a confirmed stage or diagnosis.
 

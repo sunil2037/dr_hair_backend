@@ -11,6 +11,7 @@ export class Treatment {
     duration,
     instructions,
     doctor_name,
+    reviewed_by = '',
     medications = [],
     diagnosis = '',
     stage = '',
@@ -27,6 +28,7 @@ export class Treatment {
     this.duration = duration;
     this.instructions = instructions;
     this.doctor_name = doctor_name;
+    this.reviewed_by = reviewed_by;
     this.medications = medications;
     this.diagnosis = diagnosis;
     this.stage = stage;
@@ -43,6 +45,7 @@ export class Treatment {
       duration: this.duration,
       instructions: this.instructions,
       doctor_name: this.doctor_name,
+      reviewed_by: this.reviewed_by,
       medications: this.medications,
       diagnosis: this.diagnosis,
       stage: this.stage,

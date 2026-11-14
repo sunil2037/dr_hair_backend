@@ -9,7 +9,7 @@ export class Product {
     root_cause = 'Hair',
     root_causes = ['Hair'],
     sku = '',
-    rating = 4.8,
+    rating = 0,
     reviews_count = 0,
     in_stock = true,
     stock = 100,
@@ -34,7 +34,8 @@ export class Product {
     this.root_cause = root_cause;
     this.root_causes = Array.isArray(root_causes) && root_causes.length ? root_causes : [root_cause];
     this.sku = sku;
-    this.rating = Number(rating) || 4.8;
+    const parsedRating = Number(rating);
+    this.rating = Number.isFinite(parsedRating) ? parsedRating : 0;
     this.reviews_count = Number(reviews_count) || 0;
     this.in_stock = Boolean(in_stock);
     this.stock = Number(stock) || 0;
@@ -135,7 +136,7 @@ export class Product {
       root_cause: primaryRootCause,
       root_causes: rootCauses,
       sku: (payload.sku && payload.sku !== 'DRH-NEW') ? payload.sku.trim().toUpperCase() : autoSku,
-      rating: Number(payload.rating) || 4.8,
+      rating: payload.rating == null ? 0 : Number(payload.rating),
       reviews_count: Number(payload.reviews_count || payload.reviewsCount) || 0,
       in_stock: payload.in_stock !== false && payload.inStock !== false && payload.status !== 'Draft',
       stock: Number(payload.stock ?? 100),

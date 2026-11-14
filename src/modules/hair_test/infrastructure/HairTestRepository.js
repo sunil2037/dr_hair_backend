@@ -10,7 +10,7 @@ const VALID_TRANSITIONS = {
   submitted: ['under_review', 'reviewed', 'archived'],
   under_review: ['reviewed', 'submitted', 'archived'],
   reviewed: ['archived'],
-  archived: [],
+  archived: ['submitted'],
 };
 
 const toHairTest = (record) => {
@@ -60,13 +60,14 @@ export class HairTestRepository extends IHairTestRepository {
     return new HairTest(newRecord);
   }
 
-  async findByUserId(userId) {
+  async findByUserId(userId, { includeArchived = false } = {}) {
     const numericId = parseInt(userId, 10);
+    const statusFilter = includeArchived ? { $ne: 'draft' } : { $nin: ['draft', 'archived'] };
     if (isMongoConnected()) {
-      const records = await HairTestModel.find({ userId: numericId, status: { $ne: 'draft' } }).sort({ created_at: -1 }).lean();
+      const records = await HairTestModel.find({ userId: numericId, status: statusFilter }).sort({ created_at: -1 }).lean();
       return records.map(toHairTest);
     }
-    const tests = store.hairTests.filter((t) => t.userId === numericId && t.status !== 'draft');
+    const tests = store.hairTests.filter((t) => t.userId === numericId && t.status !== 'draft' && (includeArchived || t.status !== 'archived'));
     return tests.map((t) => new HairTest(t));
   }
 
@@ -252,10 +253,11 @@ export class HairTestRepository extends IHairTestRepository {
   }
 
   async saveAiAssessment(referenceNo, aiAssessment) {
+    const updatedAt = new Date();
     if (isMongoConnected()) {
       const record = await HairTestModel.findOneAndUpdate(
         { reference_no: referenceNo },
-        { $set: { ai_assessment: aiAssessment } },
+        { $set: { ai_assessment: aiAssessment, ai_assessment_status: 'ready', ai_assessment_updated_at: updatedAt }, $unset: { ai_assessment_locked_at: 1, ai_assessment_locked_by: 1, ai_assessment_error: 1, ai_assessment_queued_at: 1 } },
         { new: true },
       ).lean();
       return toHairTest(record);
@@ -264,7 +266,111 @@ export class HairTestRepository extends IHairTestRepository {
     const test = store.hairTests.find((t) => t.reference_no === referenceNo);
     if (!test) return null;
     test.ai_assessment = aiAssessment;
+    test.ai_assessment_status = 'ready';
+    test.ai_assessment_updated_at = updatedAt;
+    delete test.ai_assessment_locked_at;
+    delete test.ai_assessment_locked_by;
+    delete test.ai_assessment_error;
+    delete test.ai_assessment_queued_at;
     return new HairTest(test);
+  }
+
+  async claimNextAiAssessment(workerId, { staleAfterMs = 120000 } = {}) {
+    const now = new Date();
+    const staleBefore = new Date(now.getTime() - staleAfterMs);
+    if (isMongoConnected()) {
+      const record = await HairTestModel.findOneAndUpdate(
+        {
+          ai_assessment: null,
+          status: { $ne: 'archived' },
+          $or: [
+            { ai_assessment_status: 'queued' },
+            { ai_assessment_status: { $exists: false } },
+            { ai_assessment_status: 'processing', ai_assessment_locked_at: { $lt: staleBefore } },
+          ],
+        },
+        { $set: { ai_assessment_status: 'processing', ai_assessment_locked_at: now, ai_assessment_locked_by: workerId, ai_assessment_updated_at: now } },
+        { new: true, sort: { ai_assessment_queued_at: 1, created_at: 1 } },
+      ).lean();
+      return toHairTest(record);
+    }
+
+    const record = store.hairTests.find((item) => {
+      if (item.ai_assessment || item.status === 'archived') return false;
+      if (!item.ai_assessment_status || item.ai_assessment_status === 'queued') return true;
+      return item.ai_assessment_status === 'processing' && new Date(item.ai_assessment_locked_at || 0) < staleBefore;
+    });
+    if (!record) return null;
+    record.ai_assessment_status = 'processing';
+    record.ai_assessment_locked_at = now;
+    record.ai_assessment_locked_by = workerId;
+    record.ai_assessment_updated_at = now;
+    return new HairTest(record);
+  }
+
+  async markAiAssessmentFailed(referenceNo, errorCode = 'processing_failed') {
+    const updatedAt = new Date();
+    const safeError = String(errorCode).slice(0, 80);
+    if (isMongoConnected()) {
+      const record = await HairTestModel.findOneAndUpdate(
+        { reference_no: referenceNo, ai_assessment_status: 'processing' },
+        { $set: { ai_assessment_status: 'failed', ai_assessment_error: safeError, ai_assessment_updated_at: updatedAt }, $unset: { ai_assessment_locked_at: 1, ai_assessment_locked_by: 1, ai_assessment_queued_at: 1 } },
+        { new: true },
+      ).lean();
+      return toHairTest(record);
+    }
+    const record = store.hairTests.find((item) => item.reference_no === referenceNo && item.ai_assessment_status === 'processing');
+    if (!record) return null;
+    record.ai_assessment_status = 'failed';
+    record.ai_assessment_error = safeError;
+    record.ai_assessment_updated_at = updatedAt;
+    delete record.ai_assessment_locked_at;
+    delete record.ai_assessment_locked_by;
+    delete record.ai_assessment_queued_at;
+    return new HairTest(record);
+  }
+
+  async getAiAssessmentStatus(referenceNo, userId) {
+    const numericUserId = Number(userId);
+    if (isMongoConnected()) {
+      const record = await HairTestModel.findOne({ reference_no: referenceNo, userId: numericUserId }).select('reference_no ai_assessment_status ai_assessment ai_assessment_error ai_assessment_updated_at').lean();
+      return record ? {
+        reference_no: record.reference_no,
+        status: record.ai_assessment_status || (record.ai_assessment ? 'ready' : 'queued'),
+        ai_assessment: record.ai_assessment || null,
+        error_code: record.ai_assessment_error || null,
+        updated_at: record.ai_assessment_updated_at || null,
+      } : null;
+    }
+    const record = store.hairTests.find((item) => item.reference_no === referenceNo && Number(item.userId) === numericUserId);
+    if (!record) return null;
+    return {
+      reference_no: record.reference_no,
+      status: record.ai_assessment_status || (record.ai_assessment ? 'ready' : 'queued'),
+      ai_assessment: record.ai_assessment || null,
+      error_code: record.ai_assessment_error || null,
+      updated_at: record.ai_assessment_updated_at || null,
+    };
+  }
+
+  async retryAiAssessment(referenceNo, userId) {
+    const numericUserId = Number(userId);
+    const updatedAt = new Date();
+    if (isMongoConnected()) {
+      const record = await HairTestModel.findOneAndUpdate(
+        { reference_no: referenceNo, userId: numericUserId, ai_assessment_status: 'failed', ai_assessment: null },
+        { $set: { ai_assessment_status: 'queued', ai_assessment_queued_at: updatedAt, ai_assessment_updated_at: updatedAt, ai_assessment_error: null } },
+        { new: true },
+      ).lean();
+      return toHairTest(record);
+    }
+    const record = store.hairTests.find((item) => item.reference_no === referenceNo && Number(item.userId) === numericUserId && item.ai_assessment_status === 'failed' && !item.ai_assessment);
+    if (!record) return null;
+    record.ai_assessment_status = 'queued';
+    record.ai_assessment_queued_at = updatedAt;
+    record.ai_assessment_updated_at = updatedAt;
+    record.ai_assessment_error = null;
+    return new HairTest(record);
   }
 
   async list({ page = 1, limit = 25, status } = {}) {

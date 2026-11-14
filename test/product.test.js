@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import { createContainer } from '../src/container.js';
 import { createApp } from '../src/app.js';
 import { TokenService } from '../src/shared/utils/token.service.js';
+import { Product } from '../src/modules/products/domain/Product.js';
+
+test('products without review data do not receive a fabricated rating', () => {
+  const product = new Product({ id: 'unrated', name: 'Unrated', category: 'Care' });
+  assert.equal(product.rating, 0);
+  assert.equal(product.reviews_count, 0);
+});
 
 test('Product Module - Clean Architecture Tests', async (t) => {
   const container = createContainer();

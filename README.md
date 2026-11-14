@@ -38,6 +38,8 @@ Keep `.env` private and out of Git. The current `.gitignore` excludes it. Render
 
 When Gemini is configured, the backend sends assessment answers and up to two authenticated scalp photos to Google's Gemini API to generate the assessment. Configure this integration only where the applicable patient notice, consent, and data-handling requirements are in place. The AI output is a screening aid and does not replace review by a qualified clinician.
 
+Assessment submission now saves the patient record and queues AI analysis without waiting for Gemini. The queue status is stored on the assessment document in MongoDB (no separate queue collection), and the patient app polls the owner-protected status endpoint. Run `npm run worker:assessment` as a separate, always-on process with the same `MONGODB_URI`, Gemini, and Cloudinary environment as the API. This worker is required in serverless deployments such as Vercel; a serverless API function cannot reliably process jobs after returning the response. If the worker is offline, jobs remain queued and resume when it starts. Local in-memory mode is not shared between separate API and worker processes and is not suitable for this flow.
+
 ## Environment variables
 
 | Variable | Purpose |
@@ -57,7 +59,13 @@ When Gemini is configured, the backend sends assessment answers and up to two au
 | `GEMINI_API_KEY` | Server-side Google AI Studio key for hair assessment analysis; leave unset to use the local fallback |
 | `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` | Primary and fallback Gemini model IDs |
 | `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` | Firebase Admin service-account credentials for FCM |
+| `SHIPROCKET_API_ENV` | Shiprocket target: `sandbox` for test requests, `production` for live requests; defaults to `sandbox` in development and `production` in production |
+| `SHIPROCKET_API_EMAIL`, `SHIPROCKET_API_PASSWORD` | Production Shiprocket API user credentials |
+| `SHIPROCKET_SANDBOX_API_EMAIL`, `SHIPROCKET_SANDBOX_API_PASSWORD` | Sandbox Shiprocket API user credentials |
+| `SHIPROCKET_PICKUP_LOCATION`, `SHIPROCKET_PACKAGE_LENGTH_CM`, `SHIPROCKET_PACKAGE_BREADTH_CM`, `SHIPROCKET_PACKAGE_HEIGHT_CM`, `SHIPROCKET_PACKAGE_WEIGHT_KG` | Pickup location and parcel measurements required to create shipments |
 | `OTP_EXPIRY_MINUTES` | OTP validity window |
+
+For local Shiprocket integration testing, use the sandbox API user's credentials. The backend defaults to sandbox in development and production in production. The sandbox endpoint keeps test calls separate from live orders and wallet activity. Set `SHIPROCKET_API_ENV=production` only when live shipping is intended; production shipment creation may incur courier charges.
 
 ## API routes
 

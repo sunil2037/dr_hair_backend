@@ -16,6 +16,9 @@ export const createPatientClinicalRouter = ({ patientClinicalController, appoint
   ]);
 
   router.get('/clinical-record', patientClinicalController.getClinicalRecord);
+  router.get('/home-summary', patientClinicalController.getHomeSummary);
+  router.get('/care-events', patientClinicalController.listCareEvents);
+  router.put('/care-events', patientClinicalController.saveCareEvent);
   if (treatmentController?.getPatientDietPlan) {
     router.get('/diet-plan', treatmentController.getPatientDietPlan);
   }

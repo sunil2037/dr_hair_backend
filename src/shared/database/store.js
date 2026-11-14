@@ -451,6 +451,7 @@ export const store = {
   appointments: [],
   clinicClosedDates: [],
   patientActivity: [],
+  patientCareEvents: [],
   progressCheckIns: [],
 
   reviews: [

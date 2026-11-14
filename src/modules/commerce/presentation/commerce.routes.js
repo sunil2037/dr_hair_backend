@@ -39,6 +39,7 @@ export function createPatientOrderRouter({ commerceController }) {
 
   router.get('/', (req, res, next) => commerceController.listPatientOrders(req, res, next));
   router.get('/:orderId', (req, res, next) => commerceController.getPatientOrder(req, res, next));
+  router.get('/:orderId/tracking', (req, res, next) => commerceController.trackPatientOrder(req, res, next));
   router.post('/:orderId/cancel', (req, res, next) => commerceController.cancelPatientOrder(req, res, next));
 
   return router;
@@ -51,6 +52,7 @@ export function createAdminOrderRouter({ commerceController }) {
 
   router.get('/', (req, res, next) => commerceController.listAdminOrders(req, res, next));
   router.get('/:orderId', (req, res, next) => commerceController.getAdminOrder(req, res, next));
+  router.get('/:orderId/tracking', (req, res, next) => commerceController.trackAdminOrder(req, res, next));
   router.patch('/:orderId/fulfillment', (req, res, next) => commerceController.updateFulfillment(req, res, next));
   router.post('/:orderId/shiprocket', (req, res, next) => commerceController.createShiprocketShipment(req, res, next));
   router.post('/:orderId/cancel', (req, res, next) => commerceController.cancelAdminOrder(req, res, next));

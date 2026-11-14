@@ -1,4 +1,5 @@
-import { BadRequestError, ConflictError, NotFoundError } from '../../../shared/errors/index.js';
+import { BadGatewayError, BadRequestError, ConflictError, NotFoundError } from '../../../shared/errors/index.js';
+import { randomUUID } from 'node:crypto';
 import { sendSuccess } from '../../../shared/utils/response.js';
 import { sendPushNotification } from '../../notifications/infrastructure/FirebaseAdminMessaging.js';
 
@@ -21,7 +22,31 @@ const dateKeyFor = (startsAt) => {
   return `${parts.year}-${parts.month}-${parts.day}`;
 };
 
-const validateDateKey = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value)) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const validateDateKey = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
+
+const clinicAvailability = {
+  timezone: 'Asia/Kolkata',
+  booking_window_days: 90,
+  weekly_closed_weekdays: [7],
+  sessions: [
+    { label: 'Morning Session', opens_at: '10:00', closes_at: '12:30' },
+    { label: 'Evening Session', opens_at: '15:30', closes_at: '18:30' },
+  ],
+};
+const clinicWeekdayNumbers = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+const minutesFromClinicClock = (value) => {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
+const toClinicSlotKey = (startsAt) => {
+  const parts = localParts(new Date(startsAt));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+};
 
 export class AppointmentController {
   constructor({
@@ -162,7 +187,7 @@ export class AppointmentController {
       }
 
       const patient = await this.userRepository.findById(req.user.id);
-      const tempOrderId = `APT-${Date.now()}-${req.user.id}`;
+      const tempOrderId = `APT-${Date.now()}-${req.user.id}-${randomUUID().slice(0, 8)}`;
 
       const intent = await this.paymentGatewayService.createPaymentIntent({
         orderId: tempOrderId,
@@ -172,6 +197,11 @@ export class AppointmentController {
           name: patient?.name || '',
           email: patient?.email || '',
           phone: patient?.phone || '',
+        },
+        metadata: {
+          patient_id: req.user.id,
+          starts_at,
+          consultation_fee: fee,
         },
       });
 
@@ -203,7 +233,6 @@ export class AppointmentController {
 
       const starts_at = normalizeStartsAt(rawStartsAt);
       const reason = String(rawReason || 'Clinic consultation').trim().slice(0, 500);
-      await this.validateSlot(starts_at, { patientRequest: true });
 
       const isValid = this.paymentGatewayService.verifyPaymentSignature({
         orderId: razorpay_order_id,
@@ -215,30 +244,95 @@ export class AppointmentController {
         throw new BadRequestError('Razorpay payment signature verification failed.');
       }
 
-      const billing = await this.getBillingConfig();
-      const fee = billing.consultation_fee;
+      const alreadyBooked = await this.appointmentRepository.findByPaymentTransactionId(razorpay_payment_id);
+      if (alreadyBooked) {
+        if (Number(alreadyBooked.userId) !== Number(req.user.id) ||
+            alreadyBooked.starts_at !== starts_at) {
+          throw new ConflictError('This payment has already been used for another appointment. Contact the clinic before retrying.');
+        }
+        const existingPatient = await this.userRepository.findById(req.user.id);
+        return sendSuccess(res, {
+          message: 'This payment was already verified and its appointment is confirmed.',
+          data: this.serialize(alreadyBooked, existingPatient),
+        });
+      }
+
+      const order = await this.paymentGatewayService.getPaymentOrder(razorpay_order_id);
+      const orderNotes = order?.notes || {};
+      const expectedFee = Number(orderNotes.consultation_fee);
+      const generatedOrderIdPattern = new RegExp(`^APT-\\d+-${Number(req.user.id)}-[a-f0-9]{8}$`);
+      const orderBelongsToRequest =
+        order?.id === razorpay_order_id &&
+        String(orderNotes.patient_id || '') === String(req.user.id) &&
+        String(orderNotes.starts_at || '') === starts_at &&
+        typeof orderNotes.app_order_id === 'string' &&
+        generatedOrderIdPattern.test(orderNotes.app_order_id) &&
+        Number.isFinite(expectedFee) && expectedFee > 0 &&
+        Number(order.amount) === Math.round(expectedFee * 100) &&
+        order.currency === 'INR';
+      if (!orderBelongsToRequest) {
+        throw new BadRequestError('Razorpay order does not match this patient, appointment time, or consultation fee.');
+      }
+
+      await this.validateSlot(starts_at, { patientRequest: true });
+      await this.paymentGatewayService.verifyCapturedPayment({
+        paymentId: razorpay_payment_id,
+        expectedOrderId: razorpay_order_id,
+        expectedAmount: expectedFee,
+        currency: 'INR',
+      });
+
+      const fee = expectedFee;
       const patient = await this.userRepository.findById(req.user.id);
       const actor = patient?.patient_code || 'Patient';
 
-      const appointment = await this.appointmentRepository.create({
-        userId: Number(req.user.id),
-        patient_code: patient?.patient_code || '',
-        starts_at,
-        reason,
-        consultation_fee: fee,
-        payment_status: 'Paid',
-        payment_method: 'Razorpay',
-        payment_transaction_id: razorpay_payment_id,
-        payment_time: new Date(),
-        source: 'App',
-        status: 'Confirmed',
-        status_history: [{
-          action: `booked via online payment (₹${fee} Paid via Razorpay · Txn: ${razorpay_payment_id})`,
-          status: 'Confirmed',
-          changed_by: actor,
+      let appointment;
+      try {
+        appointment = await this.appointmentRepository.create({
+          userId: Number(req.user.id),
+          patient_code: patient?.patient_code || '',
           starts_at,
-        }],
-      });
+          reason,
+          consultation_fee: fee,
+          payment_status: 'Paid',
+          payment_method: 'Razorpay',
+          payment_transaction_id: razorpay_payment_id,
+          payment_time: new Date(),
+          source: 'App',
+          status: 'Confirmed',
+          status_history: [{
+            action: `booked via online payment (₹${fee} Paid via Razorpay · Txn: ${razorpay_payment_id})`,
+            status: 'Confirmed',
+            changed_by: actor,
+            starts_at,
+          }],
+        });
+      } catch (error) {
+        if (!(error instanceof ConflictError)) throw error;
+
+        const concurrentRetry = await this.appointmentRepository.findByPaymentTransactionId(razorpay_payment_id);
+        if (concurrentRetry) {
+          if (Number(concurrentRetry.userId) === Number(req.user.id) && concurrentRetry.starts_at === starts_at) {
+            return sendSuccess(res, {
+              message: 'This payment was already verified and its appointment is confirmed.',
+              data: this.serialize(concurrentRetry, patient),
+            });
+          }
+          throw new ConflictError('This payment has already been used for another appointment. Contact the clinic before retrying.');
+        }
+
+        try {
+          const refund = await this.paymentGatewayService.refundCapturedPayment({
+            paymentId: razorpay_payment_id,
+            amount: fee,
+          });
+          if (!refund?.id) throw new Error('Razorpay did not return a refund reference.');
+          throw new ConflictError(`That clinic time was just booked. A refund has been initiated for payment ${razorpay_payment_id} (refund ${refund.id}).`);
+        } catch (refundError) {
+          if (refundError instanceof ConflictError) throw refundError;
+          throw new BadGatewayError(`Payment ${razorpay_payment_id} was captured, but the clinic time could not be confirmed and refund status could not be verified. Contact the clinic with this payment reference.`);
+        }
+      }
 
       await this.patientActivityRepository.record({
         userId: req.user.id,
@@ -304,17 +398,18 @@ export class AppointmentController {
   validateSlot = async (startsAt, { patientRequest = false, exceptId = '' } = {}) => {
     const date = new Date(startsAt);
     const parts = localParts(date);
-    const weekday = parts.weekday;
+    const weekday = clinicWeekdayNumbers[parts.weekday];
     const hour = Number(parts.hour);
     const minute = Number(parts.minute);
     const totalMinutes = hour * 60 + minute;
-    const allowed = (totalMinutes >= 600 && totalMinutes <= 750 || totalMinutes >= 930 && totalMinutes <= 1110) && slotMinutes.has(minute);
-    if (!allowed) throw new BadRequestError('Choose an available clinic sitting slot (10:00 AM–12:30 PM or 3:30 PM–6:30 PM).');
-    if (weekday === 'Sun') throw new BadRequestError('The clinic is closed on Sundays. Choose Monday to Saturday.');
+    const allowed = clinicAvailability.sessions.some(({ opens_at, closes_at }) =>
+      totalMinutes >= minutesFromClinicClock(opens_at) && totalMinutes <= minutesFromClinicClock(closes_at)) && slotMinutes.has(minute);
+    if (!allowed) throw new BadRequestError('Choose an available clinic sitting time shown in the appointment calendar.');
+    if (clinicAvailability.weekly_closed_weekdays.includes(weekday)) throw new BadRequestError('The clinic is closed on this weekday. Choose another day.');
     const closedDates = await this.appointmentRepository.listClosedDates();
     if (closedDates.some((item) => item.date === dateKeyFor(startsAt))) throw new BadRequestError('The clinic is closed on this date. Choose another date.');
     if (date.getTime() <= Date.now()) throw new BadRequestError('Choose a future clinic slot.');
-    if (patientRequest && date.getTime() > Date.now() + 90 * 24 * 60 * 60 * 1000) throw new BadRequestError('Choose a clinic slot within the next 90 days.');
+    if (patientRequest && date.getTime() > Date.now() + clinicAvailability.booking_window_days * 24 * 60 * 60 * 1000) throw new BadRequestError(`Choose a clinic slot within the next ${clinicAvailability.booking_window_days} days.`);
     if (await this.appointmentRepository.findSlot(startsAt, exceptId)) throw new BadRequestError('This sitting is already booked. Choose another time.');
   };
 
@@ -791,6 +886,38 @@ export class AppointmentController {
   listClosedDates = async (_req, res, next) => {
     try { return sendSuccess(res, { data: { items: await this.appointmentRepository.listClosedDates() } }); }
     catch (error) { next(error); }
+  };
+
+  getPatientAvailability = async (req, res, next) => {
+    try {
+      const from = String(req.query?.from || '');
+      const to = String(req.query?.to || '');
+      if (!validateDateKey(from) || !validateDateKey(to) || to < from) {
+        throw new BadRequestError('from and to must be valid YYYY-MM-DD dates with from on or before to.');
+      }
+      const fromUtc = Date.parse(`${from}T00:00:00Z`);
+      const toUtc = Date.parse(`${to}T00:00:00Z`);
+      const rangeDays = Math.round((toUtc - fromUtc) / (24 * 60 * 60 * 1000));
+      if (rangeDays > 40) throw new BadRequestError('Availability range cannot exceed 41 calendar days.');
+
+      const [closedDates, appointments] = await Promise.all([
+        this.appointmentRepository.listClosedDates(),
+        this.appointmentRepository.listActiveSlotTimesInRange(from, to),
+      ]);
+      const closedDateItems = closedDates
+        .filter((item) => item.date >= from && item.date <= to)
+        .map(({ date }) => ({ date }));
+      const bookedSlots = appointments.map((item) => toClinicSlotKey(item.starts_at));
+      return sendSuccess(res, {
+        data: {
+          ...clinicAvailability,
+          from,
+          to,
+          closed_dates: closedDateItems,
+          booked_slots: bookedSlots,
+        },
+      });
+    } catch (error) { next(error); }
   };
 
   createClosedDate = async (req, res, next) => {

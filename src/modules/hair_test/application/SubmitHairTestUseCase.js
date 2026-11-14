@@ -2,10 +2,11 @@ import { BadRequestError, UnauthorizedError } from '../../../shared/errors/index
 import { config } from '../../../config/env.js';
 
 export class SubmitHairTestUseCase {
-  constructor({ hairTestRepository, imageStorage, geminiAiService }) {
+  constructor({ hairTestRepository, imageStorage, geminiAiService, assessmentProductAvailabilityService }) {
     this.hairTestRepository = hairTestRepository;
     this.imageStorage = imageStorage;
     this.geminiAiService = geminiAiService;
+    this.assessmentProductAvailabilityService = assessmentProductAvailabilityService;
   }
 
   async execute({ userId, formData, files = {} }) {
@@ -158,30 +159,6 @@ export class SubmitHairTestUseCase {
       throw error;
     }
 
-    let aiAssessment = null;
-    if (this.geminiAiService) {
-      try {
-        const inlineImages = [];
-        for (const key of ['photo_front', 'photo_top', 'photo_left']) {
-          const fileObj = files[key]?.[0];
-          if (fileObj?.buffer && fileObj.buffer.length <= 2 * 1024 * 1024) {
-            inlineImages.push({
-              mimeType: fileObj.mimetype || 'image/jpeg',
-              data: fileObj.buffer.toString('base64'),
-            });
-            if (inlineImages.length >= 2) break;
-          }
-        }
-        aiAssessment = await this.geminiAiService.generateHairTestAssessment({
-          ...formData,
-          inlineImages,
-        });
-      } catch (aiErr) {
-        // AI failure must never break patient submission; fallback or null is handled safely
-        aiAssessment = null;
-      }
-    }
-
     let hairTest;
     try {
       hairTest = await this.hairTestRepository.create({
@@ -222,7 +199,10 @@ export class SubmitHairTestUseCase {
         looking_for: formData.looking_for,
         hair_loss_stage: formData.hair_loss_stage || formData.stage,
         scalp_photos: scalpPhotos,
-        ai_assessment: aiAssessment,
+        ai_assessment: null,
+        ai_assessment_status: 'queued',
+        ai_assessment_queued_at: new Date(),
+        ai_assessment_updated_at: new Date(),
       });
 
       if (userId && this.hairTestRepository?.deleteDraft) {
@@ -237,7 +217,8 @@ export class SubmitHairTestUseCase {
       message: 'Hair test submitted successfully.',
       reference_no: hairTest.reference_no,
       test: hairTest,
-      ai_assessment: hairTest.ai_assessment || aiAssessment,
+      ai_assessment: null,
+      ai_assessment_status: hairTest.ai_assessment_status || 'queued',
     };
   }
 }

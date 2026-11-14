@@ -169,7 +169,7 @@ export class AdminController {
     try {
       const patient = await this.userRepository.findById(req.params.userId);
       if (!patient || patient.role !== 'user') throw new NotFoundError('Patient not found.');
-      const assessments = await this.hairTestRepository.findByUserId(patient.id);
+      const assessments = await this.hairTestRepository.findByUserId(patient.id, { includeArchived: true });
       const treatmentsByAssessment = await Promise.all(assessments.map((assessment) =>
         this.treatmentRepository.findByTestIdentifier(assessment.reference_no, { userId: patient.id }),
       ));
@@ -718,6 +718,7 @@ export class AdminController {
         duration: duration.trim(),
         instructions: instructions.trim(),
         doctor_name: doctor_name.trim(),
+        reviewed_by: String(req.user?.name || '').trim(),
         medications: normalizedMedications,
         diagnosis: diagnosis.trim(),
         stage: stage.trim(),
@@ -798,6 +799,10 @@ export class AdminController {
       const { referenceNo } = req.params;
       const { status, note } = req.body || {};
       if (!status || typeof status !== 'string') throw new BadRequestError('status is required.');
+      const statusNeedsReason = ['archived', 'submitted'].includes(status.trim());
+      if (statusNeedsReason && (typeof note !== 'string' || note.trim().length < 8)) {
+        throw new BadRequestError('Add a short reason when archiving or restoring an assessment.');
+      }
       const actor = String(req.user?.email || req.user?.login || 'Admin');
       const updated = await this.hairTestRepository.updateStatus(referenceNo, status.trim(), {
         changed_by: actor,
@@ -806,9 +811,9 @@ export class AdminController {
       if (this.auditEventRepository?.record) {
         await this.auditEventRepository.record({
           actor,
-          action: 'assessment.status_updated',
+          action: status.trim() === 'archived' ? 'assessment.archived' : status.trim() === 'submitted' ? 'assessment.restored' : 'assessment.status_updated',
           target: `assessment:${referenceNo}`,
-          metadata: { status: updated.status, reference_no: referenceNo },
+          metadata: { status: updated.status, reference_no: referenceNo, note: typeof note === 'string' ? note.trim() : '' },
         }).catch(() => null);
       }
       return sendSuccess(res, { message: 'Assessment status updated.', data: updated });

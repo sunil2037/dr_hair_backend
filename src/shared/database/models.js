@@ -258,6 +258,10 @@ const appointmentSchema = new Schema(
 );
 appointmentSchema.index({ userId: 1, starts_at: -1 });
 appointmentSchema.index({ starts_at: 1, status: 1 });
+appointmentSchema.index(
+  { payment_transaction_id: 1 },
+  { unique: true, partialFilterExpression: { payment_transaction_id: { $type: 'string', $gt: '' } } },
+);
 
 const clinicClosedDateSchema = new Schema(
   {
@@ -284,6 +288,29 @@ const patientActivitySchema = new Schema(
   { collection: 'patient_activity', versionKey: false },
 );
 patientActivitySchema.index({ userId: 1, occurred_at: -1 });
+
+const patientCareEventSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: Number, required: true, index: true },
+    event_date: { type: String, required: true },
+    event_type: { type: String, enum: ['routine', 'diet', 'water', 'symptom'], required: true },
+    event_key: { type: String, required: true },
+    status: { type: String, enum: ['pending', 'completed', 'skipped', 'logged'], required: true },
+    value: { type: Number, default: null },
+    severity: { type: String, enum: ['mild', 'moderate', 'severe', ''], default: '' },
+    symptoms: { type: [String], default: [] },
+    note: { type: String, default: '', trim: true },
+    updated_at: { type: Date, default: Date.now },
+    created_at: { type: Date, default: Date.now },
+  },
+  { collection: 'patient_care_events', versionKey: false },
+);
+patientCareEventSchema.index({ userId: 1, event_date: -1 });
+patientCareEventSchema.index(
+  { userId: 1, event_date: 1, event_type: 1, event_key: 1 },
+  { unique: true },
+);
 
 const progressPhotoSchema = new Schema(
   {
@@ -425,7 +452,7 @@ const productSchema = new Schema(
     root_cause: { type: String, default: 'Hair', trim: true },
     root_causes: { type: [String], default: ['Hair'] },
     sku: { type: String, default: '', trim: true },
-    rating: { type: Number, default: 4.8 },
+    rating: { type: Number, default: 0 },
     reviews_count: { type: Number, default: 0 },
     in_stock: { type: Boolean, default: true },
     stock: { type: Number, default: 100 },
@@ -830,6 +857,7 @@ export const ClinicalReportModel = mongoose.models.DrHairClinicalReport || mongo
 export const AppointmentModel = mongoose.models.DrHairAppointment || mongoose.model('DrHairAppointment', appointmentSchema);
 export const ClinicClosedDateModel = mongoose.models.DrHairClinicClosedDate || mongoose.model('DrHairClinicClosedDate', clinicClosedDateSchema);
 export const PatientActivityModel = mongoose.models.DrHairPatientActivity || mongoose.model('DrHairPatientActivity', patientActivitySchema);
+export const PatientCareEventModel = mongoose.models.DrHairPatientCareEvent || mongoose.model('DrHairPatientCareEvent', patientCareEventSchema);
 export const ProgressCheckInModel = mongoose.models.DrHairProgressCheckIn || mongoose.model('DrHairProgressCheckIn', progressCheckInSchema);
 export const ReviewModel = mongoose.models.DrHairReview || mongoose.model('DrHairReview', reviewSchema);
 export const DeviceTokenModel = mongoose.models.DrHairDeviceToken || mongoose.model('DrHairDeviceToken', deviceTokenSchema);

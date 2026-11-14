@@ -51,6 +51,8 @@ export class HairTest {
     scalp_photos = [],
     // AI Clinical Assessment
     ai_assessment = null,
+    ai_assessment_status = ai_assessment ? 'ready' : 'queued',
+    ai_assessment_updated_at = null,
   }) {
     this.id = id;
     this.userId = userId;
@@ -94,6 +96,8 @@ export class HairTest {
     this.hair_loss_stage = hair_loss_stage;
     this.scalp_photos = scalp_photos;
     this.ai_assessment = ai_assessment;
+    this.ai_assessment_status = ai_assessment_status;
+    this.ai_assessment_updated_at = ai_assessment_updated_at;
   }
 
   toSummary() {
@@ -106,6 +110,8 @@ export class HairTest {
       hair_loss_stage: this.hair_loss_stage,
       scalp_photos: this.scalp_photos,
       ai_assessment: this.ai_assessment,
+      ai_assessment_status: this.ai_assessment_status,
+      ai_assessment_updated_at: this.ai_assessment_updated_at,
     };
   }
 }

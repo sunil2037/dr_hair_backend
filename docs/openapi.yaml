@@ -686,7 +686,7 @@ paths:
     post:
       tags: [Hair tests]
       summary: Submit a hair and scalp assessment
-      description: Questionnaire array fields may be JSON-encoded strings in multipart form data. For each of five scalp photo angles, send either its legacy binary field or a photo_*_url returned by POST /api/v1/media/upload with X-Media-Purpose assessment; URLs are checked against the authenticated patient before the assessment is saved.
+      description: Questionnaire array fields may be JSON-encoded strings in multipart form data. For each of five scalp photo angles, send either its legacy binary field or a photo_*_url returned by POST /api/v1/media/upload with X-Media-Purpose assessment; URLs are checked against the authenticated patient before the assessment is saved. Submission stores the assessment and queues AI processing, then returns its reference number and ai_assessment_status without waiting for the AI. Poll /api/v1/hair-tests/{referenceNo}/ai_assessment/status for the result. A separate worker process must run against the same persistent MongoDB database. Available products are matched server-side only when the patient shop is enabled and items are active and in stock. Critical cases return clinician_review_required and omit self-care recommendations.
       x-legacy-path: /HairTest/submit_form
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -768,6 +768,58 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/ServerError' }
 
+  /api/v1/hair-tests/{referenceNo}/ai_assessment/status:
+    get:
+      tags: [Hair tests]
+      summary: Get the authenticated patient's AI assessment job status and result
+      description: Returns queued, processing, ready, or failed. Only the owner of the assessment can poll this endpoint. The AI result is included only when ready.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: referenceNo
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/hair-tests/{referenceNo}/ai_assessment/retry:
+    post:
+      tags: [Hair tests]
+      summary: Requeue a failed AI assessment for its authenticated owner
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: referenceNo
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/hair-tests/{referenceNo}/diet_plan:
+    post:
+      tags: [Hair tests]
+      summary: Generate a personalized seven-day AI meal plan for an assessment
+      description: Available only to the assessment owner after a non-critical AI assessment. The generated plan is stored with the assessment and returned with the complete AI assessment payload. Critical cases should follow the clinician appointment recommendation.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: referenceNo
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
   /api/v1/treatments/get_treatment_history/{reference_no}:
     get:
       tags: [Treatments]
@@ -790,6 +842,18 @@ paths:
       tags: [Patient app]
       summary: Get the authenticated patient's assessments, care plans, and report metadata
       description: The patient identity is taken from the bearer token. It cannot be selected by a request parameter.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/patient/home-summary:
+    get:
+      tags: [Patient app]
+      summary: Get normalized care action cards for dynamic home dashboard
+      description: Returns prioritized action cards derived from authoritative assessments, care plans, shared reports, and appointments.
       security: [{ bearerAuth: [] }]
       responses:
         '200': { $ref: '#/components/responses/Success' }
@@ -829,6 +893,50 @@ paths:
                                 benefit: { type: string, example: "Strengthens hair cortex and keratin synthesis." }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/patient/care-events:
+    get:
+      tags: [Patient app]
+      summary: List the authenticated patient's daily care events
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [Patient app]
+      summary: Save a routine, diet, hydration, or symptom check-in
+      description: The owner is always derived from the authenticated session. Concerning symptoms return a clinic-contact recommendation without an AI diagnosis.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_date, event_type, event_key, status]
+              properties:
+                event_date: { type: string, format: date }
+                event_type: { type: string, enum: [routine, diet, water, symptom] }
+                event_key: { type: string, maxLength: 160 }
+                status: { type: string, enum: [pending, completed, skipped, logged] }
+                value: { type: integer, minimum: 0, maximum: 20, description: Water glasses logged for that day }
+                severity: { type: string, enum: [mild, moderate, severe] }
+                symptoms: { type: array, items: { type: string, enum: [itching, pain, burning, redness, sores, increased_shedding, other] } }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /api/v1/patient/progress-checkins:
     get:
@@ -912,6 +1020,24 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/ServerError' }
+
+  /api/v1/appointments/availability:
+    get:
+      tags: [Appointments]
+      summary: Read public clinic availability for a date range
+      description: Returns clinic-local session hours, timezone, booking window, closed dates, and booked local slot keys. It never returns patient or appointment identifiers.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /api/v1/patient/appointments:
     get:
@@ -1400,6 +1526,34 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/v1/patient/orders/{orderId}/tracking:
+    parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Commerce]
+      summary: Get live Shiprocket tracking for the signed-in patient's order
+      description: The patient can track only an order they own. Returns the current carrier status, estimated delivery, and scan events when a Shiprocket AWB is assigned.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Live courier status and scan history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ShiprocketTracking' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /api/v1/patient/orders/{orderId}/cancel:
     parameters:
       - name: orderId
@@ -1553,6 +1707,35 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/orders/{orderId}/tracking:
+    parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Admin]
+      summary: Get live Shiprocket tracking for an order
+      description: Requires order-management access. Returns current carrier status, estimated delivery, and shipment scan events for a Shiprocket AWB.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Live courier status and scan history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ShiprocketTracking' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/admin/orders/{orderId}/fulfillment:
     parameters:
@@ -3046,6 +3229,27 @@ components:
         is_admin: { type: boolean }
         reference_no: { type: string }
       required: [status]
+    ShiprocketTracking:
+      type: object
+      properties:
+        awb_code: { type: string }
+        courier: { type: string }
+        current_status: { type: string }
+        current_status_id: { type: [string, integer, 'null'] }
+        estimated_delivery: { type: string }
+        origin: { type: string }
+        destination: { type: string }
+        track_url: { type: string, format: uri }
+        updated_at: { type: string }
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string }
+              status: { type: string }
+              activity: { type: string }
+              location: { type: string }
     ErrorEnvelope:
       type: object
       properties:
@@ -3196,6 +3400,35 @@ components:
       anyOf:
         - required: [full_name]
         - required: [name]
+    HairAssessmentAiResult:
+      type: object
+      properties:
+        ai_status: { type: string, enum: [available, unavailable, clinician_review_required] }
+        summary: { type: string }
+        next_step_recommendation:
+          type: object
+          properties:
+            type: { type: string, enum: [products, doctor_appointment, unavailable] }
+            reason: { type: string }
+        recommended_regimen: { type: object, description: Empty for clinician-priority cases. }
+        diet_plan: { type: object, description: Empty for clinician-priority cases. }
+        available_products:
+          type: array
+          description: Server matched catalog items; empty when shop is disabled, products are unavailable, or clinician review takes priority.
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              category: { type: string }
+              in_stock: { type: boolean, const: true }
+              stock: { type: number, exclusiveMinimum: 0 }
+        product_availability:
+          type: object
+          properties:
+            status: { type: string, enum: [checked, unavailable, not_applicable] }
+            shop_enabled: { type: boolean }
+        custom_meal_plan: { type: object, description: AI-generated seven-day plan, when requested and eligible. }
     ReviewQueryRequest:
       type: object
       properties:

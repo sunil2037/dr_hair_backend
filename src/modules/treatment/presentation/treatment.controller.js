@@ -34,8 +34,8 @@ export class TreatmentController {
       return sendSuccess(res, {
         data: {
           diet_meals: treatmentWithDiet?.diet_meals || [],
-          treatment_name: treatmentWithDiet?.treatment_name || 'Personalized Care Plan',
-          doctor_name: treatmentWithDiet?.doctor_name || 'Dr. Hair Clinical Team',
+          treatment_name: treatmentWithDiet?.diet_meals?.length ? treatmentWithDiet.treatment_name : '',
+          doctor_name: treatmentWithDiet?.diet_meals?.length ? (treatmentWithDiet.doctor_name || '') : '',
         },
       });
     } catch (err) {

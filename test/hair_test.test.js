@@ -88,10 +88,31 @@ describe('Hair Test & Treatment Modules - Clean Architecture Tests', () => {
 
     assert.equal(result.message, 'Hair test submitted successfully.');
     assert.ok(result.reference_no.startsWith('HT-'));
-    assert.ok(result.test.ai_assessment);
-    assert.equal(typeof result.test.ai_assessment.scalp_health_score, 'number');
-    assert.ok(result.test.ai_assessment.diet_plan.foods_to_eat.length > 0);
+    assert.equal(result.test.ai_assessment, null);
+    assert.equal(result.test.ai_assessment_status, 'queued');
+    assert.equal(result.ai_assessment_status, 'queued');
     createdReferenceNo = result.reference_no;
+  });
+
+  it('processes the queued AI assessment after the submit response', async () => {
+    let status = await container.repositories.hairTestRepository.getAiAssessmentStatus(createdReferenceNo, 12);
+    for (let attempt = 0; status?.status === 'queued' && attempt < 25; attempt += 1) {
+      const processed = await container.useCases.processQueuedAiAssessmentUseCase.processOne();
+      if (!processed) break;
+      status = await container.repositories.hairTestRepository.getAiAssessmentStatus(createdReferenceNo, 12);
+    }
+    assert.equal(status.status, 'ready');
+    assert.equal(typeof status.ai_assessment.scalp_health_score, 'number');
+  });
+
+  it('archives an assessment from patient history without deleting the admin record and restores it with a reason', async () => {
+    const repository = container.repositories.hairTestRepository;
+    const record = await repository.create({ userId: 9912, full_name: 'Archive Test', status: 'submitted' });
+    await repository.updateStatus(record.reference_no, 'archived', { changed_by: 'Admin', note: 'Duplicate submission confirmed' });
+    assert.equal((await repository.findByUserId(9912)).length, 0);
+    assert.equal((await repository.findByUserId(9912, { includeArchived: true })).length, 1);
+    await repository.updateStatus(record.reference_no, 'submitted', { changed_by: 'Admin', note: 'Restore after review' });
+    assert.equal((await repository.findByUserId(9912)).length, 1);
   });
 
   it('should generate on-demand AI assessment for an existing hair test', async () => {

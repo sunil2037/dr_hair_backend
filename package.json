@@ -6,6 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "worker:assessment": "node src/worker.js",
     "dev": "nodemon src/server.js",
     "admin:setup": "node src/scripts/setup-super-admin.js",
     "media:migrate-clinical-private": "node src/scripts/migrate-clinical-images-private.js",

@@ -40,6 +40,7 @@ export class ProductRepository extends IProductRepository {
       }
       if (inStock !== undefined) {
         andClauses.push({ in_stock: Boolean(inStock) });
+        if (inStock === true) andClauses.push({ stock: { $gt: 0 } });
       }
       if (search && search.trim()) {
         const regex = new RegExp(escapeRegex(search.trim()), 'i');
@@ -88,6 +89,7 @@ export class ProductRepository extends IProductRepository {
       if (inStock !== undefined) {
         const stockStatus = product.in_stock ?? product.inStock ?? true;
         if (Boolean(stockStatus) !== Boolean(inStock)) return false;
+        if (inStock === true && !(Number(product.stock) > 0)) return false;
       }
       if (search && search.trim()) {
         const q = search.trim().toLowerCase();

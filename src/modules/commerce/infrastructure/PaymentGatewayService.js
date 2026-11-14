@@ -21,7 +21,7 @@ export class PaymentGatewayService {
     }
   }
 
-  async createPaymentIntent({ orderId, amount, currency = 'INR', customer = {} }) {
+  async createPaymentIntent({ orderId, amount, currency = 'INR', customer = {}, metadata = {} }) {
     if (!orderId || amount <= 0) {
       throw new BadRequestError('Invalid order ID or payable amount for payment intent');
     }
@@ -40,7 +40,15 @@ export class PaymentGatewayService {
           amount: Math.round(amount * 100),
           currency,
           receipt: String(orderId).slice(0, 40),
-          notes: { app_order_id: String(orderId) },
+          notes: {
+            app_order_id: String(orderId),
+            ...Object.fromEntries(
+              Object.entries(metadata || {})
+                .filter(([key, value]) => /^[a-zA-Z0-9_]{1,40}$/.test(key) && value != null)
+                .slice(0, 14)
+                .map(([key, value]) => [key, String(value).slice(0, 256)]),
+            ),
+          },
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -110,6 +118,23 @@ export class PaymentGatewayService {
       throw new BadRequestError('Razorpay payment is not captured');
     }
     return payment;
+  }
+
+  async getPaymentOrder(orderId) {
+    this.assertConfigured();
+    if (!orderId) throw new BadRequestError('A Razorpay order ID is required.');
+    return this.request(`/orders/${encodeURIComponent(orderId)}`, { method: 'GET' });
+  }
+
+  async refundCapturedPayment({ paymentId, amount, currency = 'INR' }) {
+    this.assertConfigured();
+    if (!paymentId || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      throw new BadRequestError('A valid captured payment and refund amount are required.');
+    }
+    return this.request(`/payments/${encodeURIComponent(paymentId)}/refund`, {
+      method: 'POST',
+      body: JSON.stringify({ amount: Math.round(Number(amount) * 100), speed: 'normal', notes: { reason: 'Appointment slot became unavailable before confirmation' } }),
+    });
   }
 
   async request(path, options) {

@@ -203,6 +203,7 @@ export const createApp = () => {
 
   // Public clinic appointment closed dates / holidays
   app.get('/api/v1/appointments/closed-dates', cacheControl({ maxAge: 60, sMaxAge: 300, staleWhileRevalidate: 600 }), container.controllers.appointmentController.listClosedDates);
+  app.get('/api/v1/appointments/availability', cacheControl({ maxAge: 0, sMaxAge: 15, staleWhileRevalidate: 30 }), container.controllers.appointmentController.getPatientAvailability);
 
   // App Config & Release Policies (Feature flags & version check for mobile/web clients)
   app.get('/api/v1/app/config', cacheControl({ maxAge: 60, sMaxAge: 120, staleWhileRevalidate: 300 }), container.controllers.adminController.getAppConfig);

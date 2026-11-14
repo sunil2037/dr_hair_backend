@@ -1,9 +1,10 @@
 import { NotFoundError, UnauthorizedError, BadRequestError } from '../../../shared/errors/index.js';
 
 export class GenerateHairTestAiAssessmentUseCase {
-  constructor({ hairTestRepository, geminiAiService }) {
+  constructor({ hairTestRepository, geminiAiService, assessmentProductAvailabilityService }) {
     this.hairTestRepository = hairTestRepository;
     this.geminiAiService = geminiAiService;
+    this.assessmentProductAvailabilityService = assessmentProductAvailabilityService;
   }
 
   async execute({ userId, referenceNo }) {
@@ -25,7 +26,10 @@ export class GenerateHairTestAiAssessmentUseCase {
       throw new BadRequestError('AI service is currently unavailable.');
     }
 
-    const aiAssessment = await this.geminiAiService.generateHairTestAssessment(hairTest);
+    let aiAssessment = await this.geminiAiService.generateHairTestAssessment(hairTest);
+    if (this.assessmentProductAvailabilityService) {
+      aiAssessment = await this.assessmentProductAvailabilityService.resolve(aiAssessment);
+    }
     const updatedTest = await this.hairTestRepository.saveAiAssessment(referenceNo, aiAssessment);
 
     return {

@@ -191,7 +191,9 @@ describe('GeminiAiService Unit & Integration Tests', () => {
     assert.deepEqual(result.recommended_regimen.target_products, []);
   });
 
-  if (config.gemini?.apiKey) {
+  // These provider checks incur external API calls and may consume quota. Keep them
+  // out of the normal offline test suite; run only with an explicit opt-in.
+  if (process.env.RUN_GEMINI_LIVE_TESTS === '1' && config.gemini?.apiKey) {
     it('should successfully call live Gemini API with configured key', async () => {
       const service = new GeminiAiService();
       const result = await service.generateHairTestAssessment({

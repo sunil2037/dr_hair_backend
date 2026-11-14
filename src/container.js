@@ -16,6 +16,7 @@ import { CloudinaryImageStorage } from './modules/media/infrastructure/Cloudinar
 import { AppointmentRepository } from './modules/appointments/infrastructure/AppointmentRepository.js';
 import { PatientActivityRepository } from './modules/patient/infrastructure/PatientActivityRepository.js';
 import { ProgressCheckInRepository } from './modules/patient/infrastructure/ProgressCheckInRepository.js';
+import { PatientCareEventRepository } from './modules/patient/infrastructure/PatientCareEventRepository.js';
 import { MediaReferenceRepository } from './modules/media/infrastructure/MediaReferenceRepository.js';
 import { PatientArchiveService } from './modules/admin/application/PatientArchiveService.js';
 import { SessionRepository } from './modules/auth/infrastructure/SessionRepository.js';
@@ -52,6 +53,9 @@ import { DeleteAccountUseCase } from './modules/users/application/DeleteAccountU
 import { SubmitHairTestUseCase } from './modules/hair_test/application/SubmitHairTestUseCase.js';
 import { GetHairTestsUseCase } from './modules/hair_test/application/GetHairTestsUseCase.js';
 import { GenerateHairTestAiAssessmentUseCase } from './modules/hair_test/application/GenerateHairTestAiAssessmentUseCase.js';
+import { ProcessQueuedAiAssessmentUseCase } from './modules/hair_test/application/ProcessQueuedAiAssessmentUseCase.js';
+import { GenerateAssessmentDietPlanUseCase } from './modules/hair_test/application/GenerateAssessmentDietPlanUseCase.js';
+import { AssessmentProductAvailabilityService } from './modules/hair_test/application/AssessmentProductAvailabilityService.js';
 import { DetectScalpImageUseCase } from './modules/hair_test/application/DetectScalpImageUseCase.js';
 import { GetTreatmentHistoryUseCase } from './modules/treatment/application/GetTreatmentHistoryUseCase.js';
 import { GetReviewsUseCase } from './modules/review/application/GetReviewsUseCase.js';
@@ -147,6 +151,7 @@ export const createContainer = (overrides = {}) => {
   const appointmentRepository = overrides.appointmentRepository || new AppointmentRepository();
   const patientActivityRepository = overrides.patientActivityRepository || new PatientActivityRepository();
   const progressCheckInRepository = overrides.progressCheckInRepository || new ProgressCheckInRepository();
+  const patientCareEventRepository = overrides.patientCareEventRepository || new PatientCareEventRepository();
   const mediaReferenceRepository = overrides.mediaReferenceRepository || new MediaReferenceRepository();
   const patientArchiveService =
     overrides.patientArchiveService || new PatientArchiveService({ clinicalReportRepository });
@@ -263,11 +268,14 @@ export const createContainer = (overrides = {}) => {
   });
 
   const geminiAiService = overrides.geminiAiService || new GeminiAiService({ imageStorage });
+  const assessmentProductAvailabilityService = overrides.assessmentProductAvailabilityService ||
+    new AssessmentProductAvailabilityService({ productRepository, featureFlagRepository });
 
   const submitHairTestUseCase = new SubmitHairTestUseCase({
     hairTestRepository,
     imageStorage,
     geminiAiService,
+    assessmentProductAvailabilityService,
   });
 
   const getHairTestsUseCase = new GetHairTestsUseCase({
@@ -277,6 +285,20 @@ export const createContainer = (overrides = {}) => {
 
   const generateHairTestAiAssessmentUseCase = new GenerateHairTestAiAssessmentUseCase({
     hairTestRepository,
+    geminiAiService,
+    assessmentProductAvailabilityService,
+  });
+
+  const processQueuedAiAssessmentUseCase = new ProcessQueuedAiAssessmentUseCase({
+    hairTestRepository,
+    geminiAiService,
+    assessmentProductAvailabilityService,
+  });
+
+  const generateAssessmentDietPlanUseCase = new GenerateAssessmentDietPlanUseCase({
+    hairTestRepository,
+    treatmentRepository,
+    progressCheckInRepository,
     geminiAiService,
   });
 
@@ -393,7 +415,9 @@ export const createContainer = (overrides = {}) => {
     submitHairTestUseCase,
     getHairTestsUseCase,
     generateHairTestAiAssessmentUseCase,
+    generateAssessmentDietPlanUseCase,
     detectScalpImageUseCase,
+    hairTestRepository,
   });
 
   const treatmentController = new TreatmentController({
@@ -451,8 +475,11 @@ export const createContainer = (overrides = {}) => {
     appointmentRepository,
     patientActivityRepository,
     progressCheckInRepository,
+    patientCareEventRepository,
     imageStorage,
     submitHairTestUseCase,
+    featureFlagRepository,
+    assessmentProductAvailabilityService,
   });
   const supportController =
     overrides.supportController ||
@@ -496,6 +523,7 @@ export const createContainer = (overrides = {}) => {
       refundOrderUseCase,
       updateFulfillmentUseCase,
       createShiprocketShipmentUseCase,
+      shiprocketService,
       paymentGatewayService,
     });
 
@@ -545,6 +573,7 @@ export const createContainer = (overrides = {}) => {
       appointmentRepository,
       patientActivityRepository,
       progressCheckInRepository,
+      patientCareEventRepository,
       reviewRepository,
       deviceTokenRepository,
       notificationRepository,
@@ -592,6 +621,8 @@ export const createContainer = (overrides = {}) => {
       submitHairTestUseCase,
       getHairTestsUseCase,
       generateHairTestAiAssessmentUseCase,
+      processQueuedAiAssessmentUseCase,
+      generateAssessmentDietPlanUseCase,
       detectScalpImageUseCase,
       getTreatmentHistoryUseCase,
       getReviewsUseCase,

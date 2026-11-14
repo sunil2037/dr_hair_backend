@@ -1,8 +1,12 @@
 import { BadRequestError, ServiceUnavailableError, BadGatewayError } from '../../../shared/errors/index.js';
 
-const API_BASE = 'https://apiv2.shiprocket.in/v1/external';
+const API_BASES = Object.freeze({
+  production: 'https://apiv2.shiprocket.in/v1/external',
+  sandbox: 'https://api-sandbox.shiprocket.in/v1/external',
+});
 const TOKEN_REFRESH_MARGIN_MS = 30 * 60 * 1000;
-let cachedToken = null;
+const cachedTokens = new Map();
+const trackingCache = new Map();
 
 function positiveNumber(name) {
   const value = Number(process.env[name]);
@@ -12,8 +16,19 @@ function positiveNumber(name) {
 
 export class ShiprocketService {
   getConfiguration() {
-    const email = process.env.SHIPROCKET_API_EMAIL?.trim() || '';
-    const password = process.env.SHIPROCKET_API_PASSWORD || '';
+    const defaultEnvironment = process.env.NODE_ENV === 'production' ? 'production' : 'sandbox';
+    const environment = process.env.SHIPROCKET_API_ENV?.trim().toLowerCase() || defaultEnvironment;
+    const apiBase = API_BASES[environment] || '';
+    const email = environment === 'sandbox'
+      ? process.env.SHIPROCKET_SANDBOX_API_EMAIL?.trim() || ''
+      : environment === 'production'
+        ? process.env.SHIPROCKET_API_EMAIL?.trim() || ''
+        : '';
+    const password = environment === 'sandbox'
+      ? process.env.SHIPROCKET_SANDBOX_API_PASSWORD || ''
+      : environment === 'production'
+        ? process.env.SHIPROCKET_API_PASSWORD || ''
+        : '';
     const pickupLocation = process.env.SHIPROCKET_PICKUP_LOCATION?.trim() || '';
     const length = positiveNumber('SHIPROCKET_PACKAGE_LENGTH_CM');
     const breadth = positiveNumber('SHIPROCKET_PACKAGE_BREADTH_CM');
@@ -21,11 +36,13 @@ export class ShiprocketService {
     const weight = positiveNumber('SHIPROCKET_PACKAGE_WEIGHT_KG');
 
     return {
+      environment,
+      apiBase,
       email,
       password,
       pickupLocation,
       package: { length, breadth, height, weight },
-      configured: Boolean(email && password && pickupLocation && length && breadth && height && weight),
+      configured: Boolean(apiBase && email && password && pickupLocation && length && breadth && height && weight),
     };
   }
 
@@ -49,7 +66,7 @@ export class ShiprocketService {
     const config = this.getConfiguration();
     const payload = this.buildForwardShipmentPayload(order, config);
     const token = await this.getToken(config);
-    const response = await this.request('/shipments/create/forward-shipment', token, {
+    const response = await this.request(config.apiBase, '/shipments/create/forward-shipment', token, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -74,6 +91,66 @@ export class ShiprocketService {
       pickupScheduledAt: result.pickup_scheduled_date || null,
       labelUrl: result.label_url || null,
       manifestUrl: result.manifest_url || null,
+    };
+  }
+
+  async trackShipment({ awbCode, shipmentId }) {
+    const config = this.getConfiguration();
+    if (!config.apiBase || !config.email || !config.password) {
+      throw new ServiceUnavailableError(
+        'Shiprocket tracking credentials are not configured for the selected environment.',
+        null,
+        'SHIPROCKET_NOT_CONFIGURED',
+      );
+    }
+
+    const awb = String(awbCode || '').trim();
+    const shipment = String(shipmentId || '').trim();
+    if (!awb && !shipment) throw new BadRequestError('A Shiprocket AWB or shipment ID is required.');
+
+    const identifier = awb || shipment;
+    const cacheKey = `${config.environment}:${awb ? 'awb' : 'shipment'}:${identifier}`;
+    const cached = trackingCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+    const token = await this.getToken(config);
+    const path = awb
+      ? `/courier/track/awb/${encodeURIComponent(awb)}`
+      : `/courier/track/shipment/${encodeURIComponent(shipment)}`;
+    const response = await this.request(config.apiBase, path, token, { method: 'GET' });
+    const tracking = this.normalizeTracking(response, identifier);
+    trackingCache.set(cacheKey, { value: tracking, expiresAt: Date.now() + 30_000 });
+    return tracking;
+  }
+
+  normalizeTracking(response, identifier) {
+    let data = response?.tracking_data || response?.data?.tracking_data || response?.data || response;
+    if (data && !data.shipment_track && !data.shipment_track_activities) {
+      const nested = Object.values(data).find((value) => value?.tracking_data);
+      if (nested) data = nested.tracking_data;
+    }
+
+    const shipment = Array.isArray(data?.shipment_track) ? data.shipment_track[0] : data?.shipment_track || {};
+    const activities = Array.isArray(data?.shipment_track_activities)
+      ? data.shipment_track_activities
+      : [];
+
+    return {
+      awb_code: String(shipment.awb_code || identifier),
+      courier: String(shipment.courier_name || ''),
+      current_status: String(shipment.current_status || data?.current_status || ''),
+      current_status_id: shipment.current_status_id ?? data?.shipment_status ?? null,
+      estimated_delivery: String(shipment.edd || shipment.etd || data?.edd || ''),
+      origin: String(shipment.origin || ''),
+      destination: String(shipment.destination || shipment.delivered_to || ''),
+      track_url: String(data?.track_url || shipment.track_url || ''),
+      updated_at: String(shipment.updated_time_stamp || activities[0]?.date || ''),
+      events: activities.map((event) => ({
+        date: String(event.date || ''),
+        status: String(event['sr-status-label'] || event.status || ''),
+        activity: String(event.activity || event.status || ''),
+        location: String(event.location || ''),
+      })),
     };
   }
 
@@ -133,11 +210,13 @@ export class ShiprocketService {
   }
 
   async getToken(config) {
+    const cacheKey = `${config.environment}:${config.email}`;
+    const cachedToken = cachedTokens.get(cacheKey);
     if (cachedToken && cachedToken.expiresAt > Date.now() + TOKEN_REFRESH_MARGIN_MS) {
       return cachedToken.value;
     }
 
-    const response = await this.request('/auth/login', null, {
+    const response = await this.request(config.apiBase, '/auth/login', null, {
       method: 'POST',
       body: JSON.stringify({ email: config.email, password: config.password }),
     });
@@ -146,14 +225,14 @@ export class ShiprocketService {
       throw new BadGatewayError('Shiprocket authentication failed. Check the API user credentials.');
     }
 
-    cachedToken = { value: token, expiresAt: Date.now() + (9 * 24 * 60 * 60 * 1000) };
+    cachedTokens.set(cacheKey, { value: token, expiresAt: Date.now() + (9 * 24 * 60 * 60 * 1000) });
     return token;
   }
 
-  async request(path, token, options) {
+  async request(apiBase, path, token, options) {
     let response;
     try {
-      response = await fetch(`${API_BASE}${path}`, {
+      response = await fetch(`${apiBase}${path}`, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
